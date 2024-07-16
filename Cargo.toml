@@ -8,3 +8,11 @@ license = "MIT"
 keywords = ["jwt", "auth", "authentication", "async auth"]
 
 [dependencies]
+async-trait = "0.1.81"
+bcrypt = "0.15.1"
+chrono = "0.4.38"
+hex = "0.4.3"
+jsonwebtoken = "9.3.0"
+regex = "1.10.5"
+serde = "1.0.204"
+sha2 = "0.10.8"
