@@ -98,10 +98,10 @@ pub struct TokenPair {
 
 /// Settings for `UserService`` configuration
 pub struct UserServiceSettings {
-    access_tokens_secret: String,
-    access_tokens_lifetime: TimeDelta,
-    refresh_tokens_secret: String,
-    refresh_tokens_lifetime: TimeDelta
+    pub access_tokens_secret: String,
+    pub access_tokens_lifetime: TimeDelta,
+    pub refresh_tokens_secret: String,
+    pub refresh_tokens_lifetime: TimeDelta
 }
 
 /// Builder to configure and build `UserService`
@@ -148,7 +148,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUse
             return Err("User service repository can't be empty");
         }
 
-        // TODO: Additional validation of settings (positove exp times, not empty secrets, etc)
+        // TODO: Additional validation of settings (positive exp times, not empty secrets, etc)
 
         Ok(UserService {
             settings: self.settings.unwrap(),
