@@ -2,15 +2,11 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use bcrypt::{BcryptError, DEFAULT_COST};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, TimeDelta, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-// TODO: Move to config
-static REFRESH_TOKEN_EXP_SEC: i64 = 86400 * 7; // 7 days
-static ACCESS_TOKEN_EXP_SEC: i64 = 60 * 5; // 5 min
 
 /// Errors connected to auth mechanisms
 #[derive(Debug)]
@@ -27,6 +23,24 @@ pub enum AuthError {
     InvalidCredentials,
     /// Error connected with `UserRepository`
     AuthRepositoryError(String)
+}
+
+impl fmt::Display for AuthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuthError::Internal(err) => write!(f, "Auth internal error: {err}"),
+            AuthError::ValidationError(err) => write!(f, "Auth validation error: {err}"),
+            AuthError::UsernameUnavailable => write!(f, "Provided username is unavailable"),
+            AuthError::InvalidCredentials => write!(f, "Invalid credentials"),
+            AuthError::AuthRepositoryError(err) => write!(f, "Auth repository error: {err}")
+        }
+    }
+}
+
+impl From<BcryptError> for AuthError {
+    fn from(error: BcryptError) -> Self {
+        AuthError::Internal(error.to_string())
+    }
 }
 
 /// User in auth context
@@ -56,23 +70,7 @@ pub trait AuthUser {
     fn set_updated_at(&mut self, value: DateTime<Utc>);
 }
 
-pub struct User {
-    id: i32,
-    username: String,
-    pwd_hash: String,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    blocked: bool
-}
-
-/// Provides access logic for `TAuthUser`
-pub struct UserService<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
-    repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send>,
-    access_tokens_secret: String,
-    refresh_tokens_secret: String
-}
-
-/// Auth repository which may be used for `UserService`
+/// Auth repository which is used in `UserService`
 #[async_trait]
 pub trait AuthRepository<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     /// returns created id
@@ -85,56 +83,83 @@ pub trait AuthRepository<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     async fn get_user_refresh_token(&self, user_id: i32) -> Result<Option<String>, String>;
 }
 
+/// Provides access logic for `TAuthUser`
+pub struct UserService<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
+    settings: UserServiceSettings,
+    repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send>
+}
+
+/// Access-Refresh token pair
 #[derive(Serialize)]
 pub struct TokenPair {
     pub access: String,
     pub refresh: String
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Claims {
-    sub: String,
-    exp: usize
+/// Settings for `UserService`` configuration
+pub struct UserServiceSettings {
+    access_tokens_secret: String,
+    access_tokens_lifetime: TimeDelta,
+    refresh_tokens_secret: String,
+    refresh_tokens_lifetime: TimeDelta
 }
 
-/// Provides encryption functions
-struct EncryptionService;
+/// Builder to configure and build `UserService`
+pub struct UserServiceBuilder<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
+    settings: Option<UserServiceSettings>,
+    repository: Option<Arc<dyn AuthRepository<TAuthUser> + Sync + Send>>
+}
 
-/// Provides JWT 
-struct JwtService;
+pub fn default_builder() -> UserServiceBuilder<User> {
+    builder()
+}
 
-impl fmt::Display for AuthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AuthError::Internal(err) => write!(f, "Auth internal error: {err}"),
-            AuthError::ValidationError(err) => write!(f, "Auth validation error: {err}"),
-            AuthError::UsernameUnavailable => write!(f, "Provided username is unavailable"),
-            AuthError::InvalidCredentials => write!(f, "Invalid credentials"),
-            AuthError::AuthRepositoryError(err) => write!(f, "Auth repository error: {err}")
-        }
+/// Creates builder to configure and build `UserService`.
+/// See also `AuthUser`
+pub fn builder<TAuthUser: AuthUser + fmt::Debug + Send + Sync>() -> UserServiceBuilder<TAuthUser> {
+    UserServiceBuilder {
+        settings: None,
+        repository: None
     }
 }
 
-impl From<BcryptError> for AuthError {
-    fn from(error: BcryptError) -> Self {
-        AuthError::Internal(error.to_string())
+impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUser> {
+    /// Sets the settings which will be used in `UserService`
+    pub fn configure(mut self, settings: UserServiceSettings) -> Self {
+        self.settings = Some(settings);
+
+        self
+    }
+
+    /// Sets the repository which will be used in `UserService`
+    pub fn use_repository(mut self, repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send>) -> Self {
+        self.repository = Some(repository);
+
+        self
+    }
+
+    /// Builds `UserService`. Returns error, if there are some validation problems or some of the required dependencies are not configured
+    pub fn build(self) -> Result<UserService<TAuthUser>, &'static str> {
+        if self.settings.is_none() {
+            return Err("User service settings can't be empty");
+        }
+
+        if self.repository.is_none() {
+            return Err("User service repository can't be empty");
+        }
+
+        // TODO: Additional validation of settings (positove exp times, not empty secrets, etc)
+
+        Ok(UserService {
+            settings: self.settings.unwrap(),
+            repository: self.repository.unwrap()
+        })
     }
 }
 
 //TODO: Tests
 // TODO: Block user feature
 impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
-    // TODO: Implement builder instead to optionally user `User` struct as ::with_default_users() and pg_repository as ::with_pg_repository
-    // pg_repository must be feature flag in this case
-    /// Creates `UserService`
-    pub fn new(repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send> , access_tokens_secret: String, refresh_tokens_secret: String) -> Self {
-        UserService {
-            repository,
-            access_tokens_secret,
-            refresh_tokens_secret
-        }
-    }
-
     /// Creates new user and returns created id
     pub async fn create_user(&self, username: String, password: String) -> Result<i32, AuthError> {
         if let Some(_) = self.repository.get_user_by_username(&username).await.map_err(|err| AuthError::AuthRepositoryError(err))? {
@@ -154,7 +179,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
 
     /// Updates user's password
     pub async fn update_password(&self, access_token: &str, old_password: &str, password: String) -> Result<(), AuthError> {
-        let decoded_token = JwtService::decode_token(access_token, self.access_tokens_secret.as_bytes())?;
+        let decoded_token = JwtService::decode_token(access_token, self.settings.access_tokens_secret.as_bytes())?;
 
         let user_id: i32 = decoded_token.claims.sub.parse().map_err(|_| AuthError::InvalidCredentials)?;
 
@@ -208,7 +233,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
 
     /// Refreshes `TokenPair` by refresh token
     pub async fn refresh_tokens(&self, refresh_token: &str) -> Result<TokenPair, AuthError> {
-        let decoded_token = JwtService::decode_token(refresh_token, &self.refresh_tokens_secret.as_bytes())?;
+        let decoded_token = JwtService::decode_token(refresh_token, self.settings.refresh_tokens_secret.as_bytes())?;
 
         let user_id: i32 = decoded_token.claims.sub.parse().map_err(|_| AuthError::InvalidCredentials)?;
         let user = self.repository.get_user(user_id).await
@@ -240,13 +265,13 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
     fn generate_token_pair(&self, user_id: i32) -> Result<TokenPair, AuthError> {
         let refresh_token = JwtService::generate_token(
             user_id,
-            Duration::seconds(REFRESH_TOKEN_EXP_SEC),
-            self.refresh_tokens_secret.as_bytes())?;
+            self.settings.refresh_tokens_lifetime,
+            self.settings.refresh_tokens_secret.as_bytes())?;
 
         let access_token = JwtService::generate_token(
             user_id,
-            Duration::seconds(ACCESS_TOKEN_EXP_SEC),
-            self.access_tokens_secret.as_bytes())?;
+            self.settings.access_tokens_lifetime,
+            self.settings.access_tokens_secret.as_bytes())?;
 
         Ok(TokenPair {
             access: access_token,
@@ -260,6 +285,16 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         Ok(self.repository.update_user_refresh_token(user_id, &refresh_token_hash,Utc::now()).await
             .map_err(|err| AuthError::AuthRepositoryError(err))?)
     }
+}
+
+/// Default implementation of `AuthUser`
+pub struct User {
+    id: i32,
+    username: String,
+    pwd_hash: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    blocked: bool
 }
 
 impl fmt::Debug for User {
@@ -339,6 +374,9 @@ impl AuthUser for User {
     fn set_updated_at(&mut self, value: DateTime<Utc>) { self.updated_at = value; }
 }
 
+/// Provides encryption operations
+struct EncryptionService;
+
 // TODO: Check all returns with '?' and handle some of them to avoid details in errors
 // Log these details instead
 impl EncryptionService {
@@ -372,6 +410,16 @@ impl EncryptionService {
         source_hash == hash
     }
 }
+
+/// Token's claims
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    sub: String,
+    exp: usize
+}
+
+/// Provides JWT operations
+struct JwtService;
 
 // alg HS256
 impl JwtService {
