@@ -1,6 +1,6 @@
 [package]
 name = "some-auth"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 authors = ["shurikeagle <alexander.orlov22@gmail.com>"]
 repository = "https://github.com/shurikeagle/some-auth.git"

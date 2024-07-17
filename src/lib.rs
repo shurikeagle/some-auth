@@ -143,20 +143,20 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUse
     }
 
     /// Builds `UserService`. Returns error, if there are some validation problems or some of the required dependencies are not configured
-    pub fn build(self) -> Result<UserService<TAuthUser>, &'static str> {
-        if self.settings.is_none() {
-            return Err("User service settings can't be empty");
+    pub fn build(self) -> Result<UserService<TAuthUser>, &'static str> {        
+        let settings = self.settings.ok_or("User service settings can't be empty")?;
+        
+        if settings.access_tokens_secret == "" || settings.refresh_tokens_secret == "" {
+            return Err("Access and refresh token secrets can't be empty")
         }
 
-        if self.repository.is_none() {
-            return Err("User service repository can't be empty");
+        if settings.access_tokens_lifetime <= TimeDelta::zero() || settings.refresh_tokens_lifetime <= TimeDelta::zero() {
+            return Err("Access and refresh token lifetimes must be positive")
         }
-
-        // TODO: Additional validation of settings (positive exp times, not empty secrets, etc)
 
         Ok(UserService {
-            settings: self.settings.unwrap(),
-            repository: self.repository.unwrap()
+            settings,
+            repository: self.repository.ok_or("User service repository can't be empty")?
         })
     }
 }
