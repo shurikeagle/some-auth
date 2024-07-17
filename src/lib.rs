@@ -350,6 +350,7 @@ impl AuthUser for User {
         }
     }
 
+    // TODO: Move requirements to settings
     fn validate_username(username: &str) -> Result<(), AuthError> {
         const USERNAME_REQS: &str = 
             "username must be at least 5 characters, a combination of latin letters and numbers with one letter at least";
@@ -365,6 +366,7 @@ impl AuthUser for User {
         Ok(())
     }
 
+    // TODO: Move requirements to settings
     fn validate_password(password: &str) -> Result<(), AuthError> {
         const PWD_REQS: &str = 
             "password must be at least 12 characters, a combination of latin uppercase and lowercase letters, numbers, and special symbols";
@@ -441,6 +443,7 @@ struct Claims {
 /// Provides JWT operations
 struct JwtService;
 
+// TODO: Alg must be choosed in configuration
 // alg HS256
 impl JwtService {
     fn generate_token(user_id: i32, expiration: Duration, key: &[u8]) -> Result<String, AuthError> {
