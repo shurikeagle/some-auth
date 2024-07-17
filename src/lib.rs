@@ -22,7 +22,9 @@ pub enum AuthError {
     /// to provide less information for potential intruder
     InvalidCredentials,
     /// Error connected with `UserRepository`
-    AuthRepositoryError(String)
+    AuthRepositoryError(String),
+    /// User with not found. Inner string represents info about user
+    UserNotFound(String)
 }
 
 impl fmt::Display for AuthError {
@@ -32,7 +34,8 @@ impl fmt::Display for AuthError {
             AuthError::ValidationError(err) => write!(f, "Auth validation error: {err}"),
             AuthError::UsernameUnavailable => write!(f, "Provided username is unavailable"),
             AuthError::InvalidCredentials => write!(f, "Invalid credentials"),
-            AuthError::AuthRepositoryError(err) => write!(f, "Auth repository error: {err}")
+            AuthError::AuthRepositoryError(err) => write!(f, "Auth repository error: {err}"),
+            AuthError::UserNotFound(username) => write!(f, "Couldn't find user {username}"),
         }
     }
 }
@@ -68,6 +71,7 @@ pub trait AuthUser {
     // setters
     fn set_pwd_hash(&mut self, value: String);
     fn set_updated_at(&mut self, value: DateTime<Utc>);
+    fn set_blocked(&mut self, value: bool);
 }
 
 /// Auth repository which is used in `UserService`
@@ -158,7 +162,6 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUse
 }
 
 //TODO: Tests
-// TODO: Block user feature
 impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
     /// Creates new user and returns created id
     pub async fn create_user(&self, username: String, password: String) -> Result<i32, AuthError> {
@@ -177,8 +180,8 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         self.repository.add_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))
     }
 
-    /// Updates user's password
-    pub async fn update_password(&self, access_token: &str, old_password: &str, password: String) -> Result<(), AuthError> {
+    /// Updates password for user with provided access_token
+    pub async fn update_own_password(&self, access_token: &str, old_password: &str, password: String) -> Result<(), AuthError> {
         let decoded_token = JwtService::decode_token(access_token, self.settings.access_tokens_secret.as_bytes())?;
 
         let user_id: i32 = decoded_token.claims.sub.parse().map_err(|_| AuthError::InvalidCredentials)?;
@@ -207,6 +210,22 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         _ = self.repository.update_user_refresh_token(user_id, "",Utc::now()).await;
         
         self.repository.update_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))
+    }
+
+    /// Blocks user with provided username
+    pub async fn block_user(&self, username: &str) -> Result<(), AuthError> {
+        let mut user = self.repository.get_user_by_username(username).await
+            .map_err(|err| AuthError::AuthRepositoryError(err))?
+            .ok_or(AuthError::UserNotFound(username.to_string()))?;
+
+        user.set_blocked(true);
+        user.set_updated_at(Utc::now());
+
+
+        self.repository.update_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))?;
+
+        self.repository.update_user_refresh_token(user.id(), "",Utc::now()).await
+            .map_err(|err| AuthError::AuthRepositoryError(format!("User {username} was blocked, but refresh token wasn't cleared in repository: {err}")))
     }
 
     /// Generates `TokenPair` (refresh and access tokens) by credentials
@@ -371,7 +390,8 @@ impl AuthUser for User {
     fn updated_at(&self) -> DateTime<Utc> { self.updated_at }
     
     fn set_pwd_hash(&mut self, value: String) { self.pwd_hash = value; }    
-    fn set_updated_at(&mut self, value: DateTime<Utc>) { self.updated_at = value; }
+    fn set_updated_at(&mut self, value: DateTime<Utc>) { self.updated_at = value; }    
+    fn set_blocked(&mut self, value: bool) { self.blocked = value; }
 }
 
 /// Provides encryption operations
