@@ -1,5 +1,6 @@
 [package]
 name = "some-auth"
+description = "All-in-one library which provides auth logic for users using JWT"
 version = "0.0.5"
 edition = "2021"
 authors = ["shurikeagle <alexander.orlov22@gmail.com>"]
@@ -12,7 +13,7 @@ async-trait = "0.1.81"
 bcrypt = "0.15.1"
 chrono = "0.4.38"
 hex = "0.4.3"
-jsonwebtoken = "9.3.0"
+jsonwebtoken = { version = "9.3.0", default-features = false }
 regex = "1.10.5"
 serde = "1.0.204"
 sha2 = "0.10.8"
