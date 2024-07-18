@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use async_trait::async_trait;
 use bcrypt::{BcryptError, DEFAULT_COST};
 use chrono::{DateTime, Duration, TimeDelta, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -74,7 +74,7 @@ pub trait AuthUser {
     fn set_blocked(&mut self, value: bool);
 }
 
-/// Auth repository which is used in `UserService`
+/// Auth repository which is used in [`UserService`]
 #[async_trait]
 pub trait AuthRepository<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     /// returns created id
@@ -87,9 +87,10 @@ pub trait AuthRepository<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     async fn get_user_refresh_token(&self, user_id: i32) -> Result<Option<String>, String>;
 }
 
-/// Provides access logic for `TAuthUser`
+/// Provides access logic for specified [`AuthUser`]
 pub struct UserService<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
-    settings: UserServiceSettings,
+    jwt_algorithm: Algorithm,
+    jwt_token_settings: JwtTokenSettings,
     repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send>
 }
 
@@ -100,62 +101,86 @@ pub struct TokenPair {
     pub refresh: String
 }
 
-/// Settings for `UserService`` configuration
-pub struct UserServiceSettings {
+/// Jwt settings for [`UserService`] configuration
+pub struct JwtTokenSettings {
     pub access_tokens_secret: String,
     pub access_tokens_lifetime: TimeDelta,
     pub refresh_tokens_secret: String,
     pub refresh_tokens_lifetime: TimeDelta
 }
 
-/// Builder to configure and build `UserService`
+/// Builder to configure and build [`UserService`]
 pub struct UserServiceBuilder<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
-    settings: Option<UserServiceSettings>,
+    jwt_algorithm: Option<Algorithm>,
+    jwt_token_settings: Option<JwtTokenSettings>,
     repository: Option<Arc<dyn AuthRepository<TAuthUser> + Sync + Send>>
 }
 
+/// Creates default builder with the following configuration:
+/// + Default [`User`] model
+/// + JWT algorithm: [`Algorithm::HS256`]
 pub fn default_builder() -> UserServiceBuilder<User> {
-    builder()
+    builder().set_jwt_algorithm(Algorithm::HS256)
 }
 
-/// Creates builder to configure and build `UserService`.
-/// See also `AuthUser`
+/// Creates builder to configure and build [`UserService`].
+/// See also [`AuthUser`]
 pub fn builder<TAuthUser: AuthUser + fmt::Debug + Send + Sync>() -> UserServiceBuilder<TAuthUser> {
     UserServiceBuilder {
-        settings: None,
+        jwt_algorithm: None,
+        jwt_token_settings: None,
         repository: None
     }
 }
 
 impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUser> {
-    /// Sets the settings which will be used in `UserService`
-    pub fn configure(mut self, settings: UserServiceSettings) -> Self {
-        self.settings = Some(settings);
+    /// Sets jwt algorithm which will be used in [`UserService`]
+    /// 
+    /// Note that only HMAC (HS256, HS384, HS512) algorithms are supported now
+    pub fn set_jwt_algorithm(mut self, algorithm: Algorithm) -> Self {
+        self.jwt_algorithm = Some(algorithm);
 
         self
     }
 
-    /// Sets the repository which will be used in `UserService`
+    /// Sets jwt token settings which will be used in [`UserService`]
+    /// 
+    /// Note that access and refresh token secrets are expected as raw string regardless of the chosen jwt algorithm
+    pub fn configure_jwt(mut self, jwt_token_settings: JwtTokenSettings) -> Self {
+        self.jwt_token_settings = Some(jwt_token_settings);
+
+        self
+    }
+
+    /// Sets the repository which will be used in [`UserService`]
     pub fn use_repository(mut self, repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send>) -> Self {
         self.repository = Some(repository);
 
         self
     }
 
-    /// Builds `UserService`. Returns error, if there are some validation problems or some of the required dependencies are not configured
+    /// Builds [`UserService`] 
+    /// 
+    /// Returns error, if there are some validation problems or some of the required dependencies are not configured
     pub fn build(self) -> Result<UserService<TAuthUser>, &'static str> {        
-        let settings = self.settings.ok_or("User service settings can't be empty")?;
+        let jwt_token_settings = self.jwt_token_settings.ok_or("User service jwt settings can't be empty")?;
         
-        if settings.access_tokens_secret == "" || settings.refresh_tokens_secret == "" {
+        if jwt_token_settings.access_tokens_secret == "" || jwt_token_settings.refresh_tokens_secret == "" {
             return Err("Access and refresh token secrets can't be empty")
         }
 
-        if settings.access_tokens_lifetime <= TimeDelta::zero() || settings.refresh_tokens_lifetime <= TimeDelta::zero() {
+        if jwt_token_settings.access_tokens_lifetime <= TimeDelta::zero() || jwt_token_settings.refresh_tokens_lifetime <= TimeDelta::zero() {
             return Err("Access and refresh token lifetimes must be positive")
         }
 
+        let jwt_alg: Algorithm = self.jwt_algorithm.ok_or("JWT algorithm must be set")?;
+        if jwt_alg != Algorithm::HS256 && jwt_alg != Algorithm::HS384 && jwt_alg != Algorithm::HS512 {
+            return Err("Only HMAC (HS256, HS384, HS512) algorithms are supported now")
+        }
+
         Ok(UserService {
-            settings,
+            jwt_algorithm: self.jwt_algorithm.ok_or("JWT algorithm must be set")?,
+            jwt_token_settings,
             repository: self.repository.ok_or("User service repository can't be empty")?
         })
     }
@@ -180,9 +205,12 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         self.repository.add_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))
     }
 
-    /// Updates password for user with provided access_token
+    /// Updates password for user with provided `access_token`
     pub async fn update_own_password(&self, access_token: &str, old_password: &str, password: String) -> Result<(), AuthError> {
-        let decoded_token = JwtService::decode_token(access_token, self.settings.access_tokens_secret.as_bytes())?;
+        let decoded_token = JwtService::decode_token(
+            access_token,
+            self.jwt_algorithm,
+            self.jwt_token_settings.access_tokens_secret.as_bytes())?;
 
         let user_id: i32 = decoded_token.claims.sub.parse().map_err(|_| AuthError::InvalidCredentials)?;
 
@@ -228,7 +256,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
             .map_err(|err| AuthError::AuthRepositoryError(format!("User {username} was blocked, but refresh token wasn't cleared in repository: {err}")))
     }
 
-    /// Generates `TokenPair` (refresh and access tokens) by credentials
+    /// Generates [`TokenPair`] (refresh and access tokens) by credentials
     pub async fn generate_tokens(&self, username: &str, password: &str) -> Result<TokenPair, AuthError> {
         let user = self.repository.get_user_by_username(username).await
             .map_err(|err| AuthError::AuthRepositoryError(err))?
@@ -250,9 +278,12 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         Ok(token_pair)
     }
 
-    /// Refreshes `TokenPair` by refresh token
+    /// Refreshes [`TokenPair`] by refresh token
     pub async fn refresh_tokens(&self, refresh_token: &str) -> Result<TokenPair, AuthError> {
-        let decoded_token = JwtService::decode_token(refresh_token, self.settings.refresh_tokens_secret.as_bytes())?;
+        let decoded_token = JwtService::decode_token(
+            refresh_token,
+            self.jwt_algorithm,
+            self.jwt_token_settings.refresh_tokens_secret.as_bytes())?;
 
         let user_id: i32 = decoded_token.claims.sub.parse().map_err(|_| AuthError::InvalidCredentials)?;
         let user = self.repository.get_user(user_id).await
@@ -284,13 +315,15 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
     fn generate_token_pair(&self, user_id: i32) -> Result<TokenPair, AuthError> {
         let refresh_token = JwtService::generate_token(
             user_id,
-            self.settings.refresh_tokens_lifetime,
-            self.settings.refresh_tokens_secret.as_bytes())?;
+            self.jwt_algorithm,
+            self.jwt_token_settings.refresh_tokens_lifetime,
+            self.jwt_token_settings.refresh_tokens_secret.as_bytes())?;
 
         let access_token = JwtService::generate_token(
             user_id,
-            self.settings.access_tokens_lifetime,
-            self.settings.access_tokens_secret.as_bytes())?;
+            self.jwt_algorithm,
+            self.jwt_token_settings.access_tokens_lifetime,
+            self.jwt_token_settings.access_tokens_secret.as_bytes())?;
 
         Ok(TokenPair {
             access: access_token,
@@ -306,7 +339,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
     }
 }
 
-/// Default implementation of `AuthUser`
+/// Default implementation of [`AuthUser`]
 pub struct User {
     id: i32,
     username: String,
@@ -409,7 +442,7 @@ impl EncryptionService {
         Ok(res)
     }
     
-    /// Checks if provided string's hash is equal to provided hash 
+    /// Checks if provided string's hash is equal to provided hash using bcrypt
     fn bcrypt_verify(source_str: &str, hash: &str) -> Result<bool, AuthError> {
         match bcrypt::verify(source_str, hash) {
             Ok(res) => Ok(res),
@@ -417,6 +450,7 @@ impl EncryptionService {
         }
     }
 
+    /// Creates sha256 hash from source string
     fn sha256_hash(source_str: &str) -> String {
         let mut hasher = Sha256::new();
 
@@ -426,6 +460,7 @@ impl EncryptionService {
         hex::encode(hash_result)
     }
 
+    /// Checks if provided string's hash is equal to provided hash using sha256
     fn sha256_verify(source_str: &str, hash: &str) -> bool {
         let source_hash = EncryptionService::sha256_hash(source_str);
 
@@ -443,11 +478,8 @@ struct Claims {
 /// Provides JWT operations
 struct JwtService;
 
-// TODO: Alg must be choosed in configuration
-// alg HS256
 impl JwtService {
-    fn generate_token(user_id: i32, expiration: Duration, key: &[u8]) -> Result<String, AuthError> {
-
+    fn generate_token(user_id: i32, alg: Algorithm, expiration: Duration, key: &[u8]) -> Result<String, AuthError> {
         let exp = Utc::now()
             .checked_add_signed(expiration)
             .unwrap()
@@ -458,12 +490,12 @@ impl JwtService {
             exp
         };
 
-        encode(&Header::default(), &claims, &EncodingKey::from_secret(key))
+        encode(&Header::new(alg), &claims, &EncodingKey::from_secret(key))
             .map_err(|err| AuthError::Internal(format!("couldn't generate jwt: {err}")))
     }
 
-    fn decode_token(token: &str, key: &[u8]) -> Result<TokenData<Claims>, AuthError> {
-        decode::<Claims>(&token, &DecodingKey::from_secret(&key), &Validation::default())
+    fn decode_token(token: &str, alg: Algorithm, key: &[u8]) -> Result<TokenData<Claims>, AuthError> {
+        decode::<Claims>(&token, &DecodingKey::from_secret(&key), &Validation::new(alg))
             .map_err(|_| AuthError::InvalidCredentials)
     }
 }
@@ -617,7 +649,7 @@ mod tests {
         let user_id = 1;
 
         // Act
-        let generate_token_res = JwtService::generate_token(user_id, TimeDelta::seconds(10), key.as_bytes());
+        let generate_token_res = JwtService::generate_token(user_id, Algorithm::HS256, TimeDelta::seconds(10), key.as_bytes());
 
         // Arrange
         assert!(generate_token_res.is_ok());
@@ -629,10 +661,10 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = JwtService::generate_token(user_id, TimeDelta::seconds(10), key).unwrap();
+        let token = JwtService::generate_token(user_id, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
 
         // Act
-        let decoded_token = JwtService::decode_token(&token, key);
+        let decoded_token = JwtService::decode_token(&token, Algorithm::HS256, key);
         
         // Arrange
         assert!(decoded_token.is_ok());
@@ -644,10 +676,10 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = JwtService::generate_token(user_id, TimeDelta::minutes(-2), key).unwrap();
+        let token = JwtService::generate_token(user_id, Algorithm::HS256, TimeDelta::minutes(-2), key).unwrap();
 
         // Act
-        let decoded_token = JwtService::decode_token(&token, key);
+        let decoded_token = JwtService::decode_token(&token, Algorithm::HS256, key);
         
         // Arrange
         assert!(decoded_token.is_err());
@@ -659,14 +691,14 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = JwtService::generate_token(user_id, TimeDelta::seconds(10), key).unwrap();
+        let token = JwtService::generate_token(user_id, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
         // {"sub":"2","iat":1718955601}
         let spoofed_part = "eyJzdWIiOiIyIiwiaWF0IjoxNzE4OTU1NjAxfQ";
 
         // Act
         let token_parts: Vec<_> = token.split('.').collect();
         let spoofed_token = format!("{}.{}.{}", token_parts[0], spoofed_part, token_parts[2]);
-        let decoded_token = JwtService::decode_token(&spoofed_token, key);
+        let decoded_token = JwtService::decode_token(&spoofed_token, Algorithm::HS256, key);
 
         // Arrange
         assert!(decoded_token.is_err());
