@@ -1,12 +1,12 @@
 [package]
 name = "some-auth"
 description = "All-in-one library which provides auth logic for users using JWT"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 authors = ["shurikeagle <alexander.orlov22@gmail.com>"]
 repository = "https://github.com/shurikeagle/some-auth.git"
 license = "MIT"
-keywords = ["jwt", "auth", "authentication", "async auth"]
+keywords = ["jwt", "auth", "authentication", "async auth", "users"]
 
 [dependencies]
 async-trait = "0.1.81"
