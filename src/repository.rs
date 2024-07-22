@@ -2,10 +2,12 @@ use std::fmt;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use mockall::automock;
 
 use crate::user_service::AuthUser;
 
 /// Auth repository which is used in [`UserService`]
+#[automock]
 #[async_trait]
 pub trait AuthRepository<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     /// returns created id

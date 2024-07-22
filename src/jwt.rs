@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::{Duration, TimeDelta, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use serde::{Deserialize, Serialize};
@@ -9,6 +11,15 @@ use crate::error::AuthError;
 pub struct TokenPair {
     pub access: String,
     pub refresh: String
+}
+
+impl fmt::Debug for TokenPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenPair")
+            .field("access", &"***")
+            .field("refresh", &"***")
+            .finish()
+    }
 }
 
 /// Jwt settings for [`UserService`] configuration

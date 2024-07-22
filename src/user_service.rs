@@ -41,7 +41,6 @@ pub struct UserService<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send>
 }
 
-//TODO: Tests
 impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
     /// Creates new user and returns created id
     pub async fn create_user(&self, username: String, password: String) -> Result<i32, AuthError> {
@@ -103,7 +102,6 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
 
         user.set_blocked(true);
         user.set_updated_at(Utc::now());
-
 
         self.repository.update_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))?;
 
@@ -272,6 +270,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUse
 }
 
 /// Default implementation of [`AuthUser`]
+#[derive(Clone)]
 pub struct User {
     id: i32,
     username: String,
@@ -283,10 +282,14 @@ pub struct User {
 
 impl fmt::Debug for User {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TwilioSenderConfig")
-            .field("account", &self.id)
-            .field("sender_number", &self.username)
-            .field("pwd_hash", &"***").finish()
+        f.debug_struct("User")
+            .field("id", &self.id)
+            .field("username", &self.username)
+            .field("pwd_hash", &"***")
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("blocked", &self.blocked)
+            .finish()
     }
 }
 
@@ -361,6 +364,12 @@ impl AuthUser for User {
 
 #[cfg(test)]
 mod tests {    
+    use std::{thread::sleep, time::Duration};
+
+    use mockall::predicate;
+
+    use crate::repository::MockAuthRepository;
+
     use super::*;
 
     #[test]
@@ -468,5 +477,348 @@ mod tests {
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
+    }
+
+    #[tokio::test]
+    async fn create_user_test() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+
+        // Act
+        let res = user_service.create_user(AVAILABLE_USERNAME.to_string(), "1qaz@WSX3edc".to_string()).await;
+
+        //Assert
+        assert!(res.is_ok());
+        assert_eq!(1, res.unwrap())
+    }
+
+    #[tokio::test]
+    async fn create_user_0_existing_usernaime_0_returns_error() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+
+        // Act
+        let res = user_service.create_user(EXISTING_USERNAME.to_string(), "1qaz@WSX3edc".to_string()).await;
+
+        //Assert
+        assert!(res.is_err());
+        assert_eq!(AuthError::UsernameUnavailable.to_string(), res.unwrap_err().to_string());
+    }
+
+    #[tokio::test]
+    async fn create_user_0_non_valid_username_or_password_validation_0_returns_err() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+
+        // Act
+        let bad_username = user_service.create_user("usr".to_string(), "1qaz@WSX3edc".to_string()).await;
+        let bad_pwd = user_service.create_user(AVAILABLE_USERNAME.to_string(), "1qaz".to_string()).await;
+
+        //Assert
+        assert!(bad_username.is_err());
+        assert!(bad_pwd.is_err());
+        match bad_username.unwrap_err() {
+            AuthError::ValidationError(msg) => assert!(msg.contains("username")),
+            _ => panic!("Error is not ValidationError")
+        };
+        match bad_pwd.unwrap_err() {
+            AuthError::ValidationError(msg) => assert!(msg.contains("password")),
+            _ => panic!("Error is not ValidationError")
+        };
+    }
+
+    #[tokio::test]
+    async fn update_own_password_test() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+        let user = get_existing_user(false);
+        let token_pair = user_service.generate_token_pair(user.id).unwrap();
+
+        // Act
+        let res = user_service.update_own_password(&token_pair.access, "123", "1qaz@WSX3edc".to_string()).await;
+
+        //Assert
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_own_password_0_invalid_password_0_returns_error() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+        let token_pair = user_service.generate_token_pair(0).unwrap();
+
+        // Act
+        let res = user_service.update_own_password(&token_pair.access, "321", "1qaz@WSX3edc".to_string()).await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        }
+    }
+
+    #[tokio::test]
+    async fn update_own_password_0_blocked_user_0_returns_error() {
+        // Arrange
+        let user_service = build_user_service(true, "".to_string());
+        let token_pair = user_service.generate_token_pair(0).unwrap();
+
+        // Act
+        let res = user_service.update_own_password(&token_pair.access, "123", "1qaz@WSX3edc".to_string()).await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        }
+    }
+
+    #[tokio::test]
+    async fn update_own_password_0_weak_password_0_returns_error() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+        let token_pair = user_service.generate_token_pair(0).unwrap();
+
+        // Act
+        let res = user_service.update_own_password(&token_pair.access, "123", "321".to_string()).await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::ValidationError(msg) => assert!(msg.contains("password")),
+            _ => panic!("Error is not ValidationError")
+        };
+    }
+
+    #[tokio::test]
+    async fn block_user_test() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+
+        // Act
+        let res = user_service.block_user(EXISTING_USERNAME).await;
+
+        //Assert
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn block_user_0_non_existent_user_0_returns_not_found_error() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+
+        // Act
+        let res = user_service.block_user("somename").await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::UserNotFound(msg) => assert!(msg.contains("somename")),
+            _ => panic!("Error is not UserNotFound")
+        };
+    }
+
+    #[tokio::test]
+    async fn generate_tokens_test() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+        let user = get_existing_user(false);
+
+        // Act
+        let res = user_service.generate_tokens(&user.username, "123").await;
+
+        //Assert
+        assert!(res.is_ok());
+        let token_pair = res.unwrap();
+        assert!(token_pair.access != "");
+        assert!(token_pair.refresh != "");
+    }
+
+    #[tokio::test]
+    async fn generate_tokens_0_invalid_password_0_returns_error() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+        let user = get_existing_user(false);
+
+        // Act
+        let res = user_service.generate_tokens(&user.username, "321").await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        };
+    }
+
+    #[tokio::test]
+    async fn generate_tokens_0_blocked_user_0_returns_error() {
+        // Arrange
+        let user_service = build_user_service(true, "".to_string());
+        let user = get_existing_user(true);
+
+        // Act
+        let res = user_service.generate_tokens(&user.username, "123").await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        };
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_test() {
+        // Arrange
+        let user = get_existing_user(false);
+        let refresh_token = get_user_refresh_token(user.id);
+        let user_service = build_user_service(false, refresh_token.clone());
+
+        // Act
+        let res = user_service.refresh_tokens(&refresh_token).await;
+
+        //Assert
+        assert!(res.is_ok());
+        let token_pair = res.unwrap();
+        assert!(token_pair.access != "");
+        assert!(token_pair.refresh != "");
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_0_non_existent_user_0_returns_invalid_credentials() {
+        // Arrange
+        let user = get_existing_user(false);
+        let refresh_token = get_user_refresh_token(user.id);
+        let refresh_token_non_existent_user = get_user_refresh_token(42);
+        let user_service = build_user_service(false, refresh_token.clone());
+
+        // Act
+        let res = user_service.refresh_tokens(&refresh_token_non_existent_user).await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        };
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_0_blocked_user_0_returns_invalid_credentials() {
+        // Arrange
+        let user = get_existing_user(true);
+        let refresh_token = get_user_refresh_token(user.id);
+        let user_service = build_user_service(true, refresh_token.clone());
+
+        // Act
+        let res = user_service.refresh_tokens(&refresh_token).await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        };
+    }
+
+    #[tokio::test]
+    async fn refresh_tokens_0_unactual_token_0_returns_invalid_credentials() {
+        // Arrange
+        let user = get_existing_user(false);
+        let refresh_token = get_user_refresh_token(user.id);
+        sleep(Duration::from_secs(1));
+        let new_refresh_token = get_user_refresh_token(user.id);
+        let user_service = build_user_service(false, new_refresh_token);
+
+        // Act
+        let res = user_service.refresh_tokens(&refresh_token).await;
+
+        //Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        };
+    }
+
+    const EXISTING_USERNAME: &str = "existing";
+    const AVAILABLE_USERNAME: &str = "admin";
+
+    fn build_user_service(blocked_user: bool, user_refresh_token: String) -> UserService<User> {
+        let existing_user = get_existing_user(blocked_user);
+        let existing_user_clone = existing_user.clone();
+        let existing_username = existing_user.username.clone();
+
+        let builder = default_builder()
+            .configure_jwt(JwtTokenSettings {
+                access_tokens_lifetime: TimeDelta::minutes(5),
+                refresh_tokens_lifetime: TimeDelta::days(7),
+                access_tokens_secret: "Sup$rS4ccrettt".to_string(),
+                refresh_tokens_secret: "AnotherSup$rS4ccrettt".to_string(),
+            });
+
+            
+        let mut repository_mock = MockAuthRepository::new();
+
+        repository_mock
+            .expect_get_user_by_username()
+            .with(predicate::function(move |name| name == existing_username))
+            .returning(move |_| Ok(Some(existing_user.clone())));
+        repository_mock
+            .expect_get_user_by_username()
+            .with(predicate::always())
+            .returning(move |_| Ok(None));
+
+        repository_mock
+            .expect_get_user()
+            .with(predicate::always())
+            .returning(move |_| Ok(Some(existing_user_clone.clone())));
+
+        repository_mock
+            .expect_add_user()
+            .with(predicate::always())
+            .returning(move |_| Ok(1));
+
+        repository_mock
+            .expect_update_user()
+            .with(predicate::always())
+            .returning(move |_| Ok(()));
+
+        repository_mock
+            .expect_update_user_refresh_token()
+            .with(predicate::always(), predicate::always(), predicate::always())
+            .returning(move |_, _, _| Ok(()));
+
+        repository_mock
+            .expect_get_user_refresh_token()
+            .with(predicate::always())
+            .returning(move |_| Ok(Some(hasher::sha256_hash(&user_refresh_token))));
+
+        builder.use_repository(Arc::new(repository_mock)).build().unwrap()
+    }
+
+    fn get_existing_user(blocked: bool) -> User {
+        let now = Utc::now();
+
+        User {
+            id: 0,
+            username: EXISTING_USERNAME.to_string(),
+            pwd_hash: hasher::bcrypt_hash("123").unwrap(),
+            created_at: now,
+            updated_at: now,
+            blocked
+        }
+    }
+
+    fn get_user_refresh_token(user_id: i32) -> String {
+        jwt::generate_token(
+            user_id,
+            Algorithm::HS256,
+            TimeDelta::days(7),
+            "AnotherSup$rS4ccrettt".as_bytes())
+            .unwrap()
     }
 }
