@@ -25,7 +25,7 @@ pub async fn auth_middleware<TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
     req: Request<Body>,
     next: Next,
     admin_only: bool
-) -> Result<Response, StatusCode> {
+) -> Result<Response<Body>, StatusCode> {
     let auth_header = req.headers().get(http::header::AUTHORIZATION).ok_or(StatusCode::UNAUTHORIZED)?;
     let access_token = auth_header.to_str().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
