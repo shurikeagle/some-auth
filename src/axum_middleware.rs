@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use axum::{extract::{Request, State}, http::{self, StatusCode}, middleware::Next, response::Response };
+use axum::{body::Body, extract::{Request, State}, http::{self, StatusCode}, middleware::Next, response::Response };
 
 use crate::{AuthError, AuthUser, UserService};
 
@@ -14,13 +14,15 @@ impl AuthError {
     }
 }
 
+/// Router [`State`] trait which must be used for [`auth_middleware`]
 pub trait UserServiceState<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     fn user_service(&self) -> Arc<UserService<TAuthUser>>;
 }
 
+/// Controls if user is authenticated and optionally checks if user is admin
 pub async fn auth_middleware<TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
     State(state): State<Arc<dyn UserServiceState<TAuthUser>>>,
-    req: Request,
+    req: Request<Body>,
     next: Next,
     admin_only: bool
 ) -> Result<Response, StatusCode> {

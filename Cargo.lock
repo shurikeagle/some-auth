@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "some-auth"
-version = "0.0.11"
+version = "0.0.13"
 dependencies = [
  "async-trait",
  "axum",
