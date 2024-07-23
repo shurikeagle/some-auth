@@ -6,38 +6,11 @@ use regex::Regex;
 
 use crate::{error::AuthError, hasher, jwt::{self, JwtTokenSettings, TokenPair}, repository::AuthRepository};
 
-/// User in auth context
-pub trait AuthUser {
-    /// Creates new user
-    /// (implement validation in  validation requires in implementation)
-    fn new(username: String, pwd_hash: String) -> Self;
-
-    /// for mapping purposes
-    fn existing(id: i32, username: String, pwd_hash: String, blocked: bool, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Self;
-
-    /// Validates if provided username meets the minimum requirements
-    fn validate_username(username: &str) -> Result<(), AuthError>;
-    /// Validates if provided password meets the minimum requirements
-    fn validate_password(password: &str) -> Result<(), AuthError>;
-
-    // getters
-    fn id(&self) -> i32;
-    fn username(&self) -> &str;
-    fn pwd_hash(&self) -> &str;
-    fn blocked(&self) -> bool;
-    fn created_at(&self) -> DateTime<Utc>;
-    fn updated_at(&self) -> DateTime<Utc>;
-
-    // setters
-    fn set_pwd_hash(&mut self, value: String);
-    fn set_updated_at(&mut self, value: DateTime<Utc>);
-    fn set_blocked(&mut self, value: bool);
-}
-
 /// Provides access logic for specified [`AuthUser`]
 pub struct UserService<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     jwt_algorithm: Algorithm,
     jwt_token_settings: JwtTokenSettings,
+    cred_validator: CredentialValidator,
     repository: Arc<dyn AuthRepository<TAuthUser> + Sync + Send>
 }
 
@@ -48,9 +21,8 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
             return Err(AuthError::UsernameUnavailable)
         }
 
-        TAuthUser::validate_username(&username)?;
-
-        TAuthUser::validate_password(&password)?;
+        (self.cred_validator.validate_username)(&username)?;
+        (self.cred_validator.validate_password)(&password)?;
 
         let pwd_hash = hasher::bcrypt_hash(&password)?;
 
@@ -82,7 +54,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
             return Err(AuthError::InvalidCredentials);
         }
 
-        TAuthUser::validate_password(&password)?;
+        (self.cred_validator.validate_password)(&password)?;
 
         let new_pwd_hash = hasher::bcrypt_hash(&password)?;
 
@@ -196,14 +168,18 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
 pub struct UserServiceBuilder<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     jwt_algorithm: Option<Algorithm>,
     jwt_token_settings: Option<JwtTokenSettings>,
+    cred_validator: Option<CredentialValidator>,
     repository: Option<Arc<dyn AuthRepository<TAuthUser> + Sync + Send>>
 }
 
 /// Creates default builder with the following configuration:
 /// + Default [`User`] model
+/// + [`CredentialValidator::default`] credential validator
 /// + JWT algorithm: [`Algorithm::HS256`]
 pub fn default_builder() -> UserServiceBuilder<User> {
-    builder().set_jwt_algorithm(Algorithm::HS256)
+    builder()
+        .set_credential_validator(CredentialValidator::default())
+        .set_jwt_algorithm(Algorithm::HS256)
 }
 
 /// Creates builder to configure and build [`UserService`].
@@ -212,11 +188,19 @@ pub fn builder<TAuthUser: AuthUser + fmt::Debug + Send + Sync>() -> UserServiceB
     UserServiceBuilder {
         jwt_algorithm: None,
         jwt_token_settings: None,
+        cred_validator: None,
         repository: None
     }
 }
 
 impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUser> {
+    /// Sets [`CredentialValidator`] which will be used to valudate [`AuthUser`] credentials in [`UserService`]
+    pub fn set_credential_validator(mut self, validator: CredentialValidator) -> Self {
+        self.cred_validator = Some(validator);
+
+        self
+    }
+
     /// Sets jwt algorithm which will be used in [`UserService`]
     /// 
     /// Note that only HMAC (HS256, HS384, HS512) algorithms are supported now
@@ -264,9 +248,82 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserServiceBuilder<TAuthUse
         Ok(UserService {
             jwt_algorithm: self.jwt_algorithm.ok_or("JWT algorithm must be set")?,
             jwt_token_settings,
+            cred_validator: self.cred_validator.ok_or("Credential validator must be set")?,
             repository: self.repository.ok_or("User service repository can't be empty")?
         })
     }
+}
+
+/// Credential validator which is used in [`UserService`] to validate [`AuthUser`]
+pub struct CredentialValidator {
+    /// Validates if username meets the minimum requirements
+    pub validate_username: fn(&str) -> Result<(), AuthError>,
+    /// Validates if password meets the minimum requirements
+    pub validate_password: fn(&str) -> Result<(), AuthError>
+}
+
+impl CredentialValidator {
+    fn default() -> CredentialValidator {
+        let username_validator = |username: &str| {
+            const USERNAME_REQS: &str = 
+            "username must be at least 5 characters, a combination of latin letters and numbers with one letter at least";
+
+            let length_check = username.len() >= 5;
+            let valid_chars_check = Regex::new(r"^[a-zA-Z0-9]+$").unwrap().is_match(username);
+            let contains_letter_check = Regex::new(r"[a-zA-Z]").unwrap().is_match(username);
+
+            if !(length_check && valid_chars_check && contains_letter_check) {
+                return Err(AuthError::ValidationError(USERNAME_REQS.to_string()))
+            }
+
+            Ok(())
+        };
+
+        let password_validator = |password: &str| {
+            const PWD_REQS: &str = 
+            "password must be at least 12 characters, a combination of latin uppercase and lowercase letters, numbers, and special symbols";
+
+            let length_check = password.len() >= 12;
+            let digit_check = Regex::new(r"\d").unwrap().is_match(password);
+            let uppercase_check = Regex::new(r"[A-Z]").unwrap().is_match(password);
+            let lowercase_check = Regex::new(r"[a-z]").unwrap().is_match(password);
+            let special_char_check = Regex::new(r#"[!@#$%^&*(),.?\":{}|<>]"#).unwrap().is_match(password);
+        
+            if !(length_check && digit_check && uppercase_check && lowercase_check && special_char_check) {
+                return Err(AuthError::ValidationError(PWD_REQS.to_string()))
+            }
+
+            Ok(())
+        };
+
+        CredentialValidator {
+            validate_username: username_validator,
+            validate_password: password_validator
+        }
+    }
+}
+
+/// User in auth context
+pub trait AuthUser {
+    /// Creates new user
+    /// (implement validation in  validation requires in implementation)
+    fn new(username: String, pwd_hash: String) -> Self;
+
+    /// for mapping purposes
+    fn existing(id: i32, username: String, pwd_hash: String, blocked: bool, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Self;
+
+    // getters
+    fn id(&self) -> i32;
+    fn username(&self) -> &str;
+    fn pwd_hash(&self) -> &str;
+    fn blocked(&self) -> bool;
+    fn created_at(&self) -> DateTime<Utc>;
+    fn updated_at(&self) -> DateTime<Utc>;
+
+    // setters
+    fn set_pwd_hash(&mut self, value: String);
+    fn set_updated_at(&mut self, value: DateTime<Utc>);
+    fn set_blocked(&mut self, value: bool);
 }
 
 /// Default implementation of [`AuthUser`]
@@ -275,9 +332,9 @@ pub struct User {
     id: i32,
     username: String,
     pwd_hash: String,
+    blocked: bool,
     created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    blocked: bool
+    updated_at: DateTime<Utc>
 }
 
 impl fmt::Debug for User {
@@ -303,10 +360,10 @@ impl AuthUser for User {
             pwd_hash,
             blocked: false,
             created_at: now,
-            updated_at: now
+            updated_at: now,
         }
     }
-
+    
     fn existing(id: i32, username: String, pwd_hash: String, blocked: bool, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Self {
         User {
             id,
@@ -314,40 +371,8 @@ impl AuthUser for User {
             pwd_hash,
             blocked,
             created_at,
-            updated_at
+            updated_at            
         }
-    }
-
-    fn validate_username(username: &str) -> Result<(), AuthError> {
-        const USERNAME_REQS: &str = 
-            "username must be at least 5 characters, a combination of latin letters and numbers with one letter at least";
-
-        let length_check = username.len() >= 5;
-        let valid_chars_check = Regex::new(r"^[a-zA-Z0-9]+$").unwrap().is_match(username);
-        let contains_letter_check = Regex::new(r"[a-zA-Z]").unwrap().is_match(username);
-
-        if !(length_check && valid_chars_check && contains_letter_check) {
-            return Err(AuthError::ValidationError(USERNAME_REQS.to_string()))
-        }
-
-        Ok(())
-    }
-
-    fn validate_password(password: &str) -> Result<(), AuthError> {
-        const PWD_REQS: &str = 
-            "password must be at least 12 characters, a combination of latin uppercase and lowercase letters, numbers, and special symbols";
-
-        let length_check = password.len() >= 12;
-        let digit_check = Regex::new(r"\d").unwrap().is_match(password);
-        let uppercase_check = Regex::new(r"[A-Z]").unwrap().is_match(password);
-        let lowercase_check = Regex::new(r"[a-z]").unwrap().is_match(password);
-        let special_char_check = Regex::new(r#"[!@#$%^&*(),.?\":{}|<>]"#).unwrap().is_match(password);
-    
-        if !(length_check && digit_check && uppercase_check && lowercase_check && special_char_check) {
-            return Err(AuthError::ValidationError(PWD_REQS.to_string()))
-        }
-
-        Ok(())
     }
 
     fn id(&self) -> i32 { self.id }
@@ -374,27 +399,30 @@ mod tests {
 
     #[test]
     fn validate_username_0_with_letters_and_numbers_0_ok() {
+        let validator = CredentialValidator::default();
         let username = "u1s2e3r";
 
-        let res = User::validate_username(username);
+        let res = (validator.validate_username)(username);
 
         assert!(res.is_ok())
     }
 
     #[test]
     fn validate_username_0_only_letters_0_ok() {
+        let validator = CredentialValidator::default();
         let username = "userr";
 
-        let res = User::validate_username(username);
+        let res = (validator.validate_username)(username);
 
         assert!(res.is_ok())
     }
 
     #[test]
     fn validate_username_0_only_numbers_0_err() {
+        let validator = CredentialValidator::default();
         let username = "12345";
 
-        let res = User::validate_username(username);
+        let res = (validator.validate_username)(username);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -402,9 +430,10 @@ mod tests {
 
     #[test]
     fn validate_username_0_too_short_0_err() {
+        let validator = CredentialValidator::default();
         let username = "user";
 
-        let res = User::validate_username(username);
+        let res = (validator.validate_username)(username);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -412,9 +441,10 @@ mod tests {
 
     #[test]
     fn validate_username_0_non_latin_0_err() {
+        let validator = CredentialValidator::default();
         let username = "ユーザー";
 
-        let res = User::validate_username(username);
+        let res = (validator.validate_username)(username);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -422,18 +452,20 @@ mod tests {
 
     #[test]
     fn validate_password_0_all_requirements_0_ok() {
+        let validator = CredentialValidator::default();
         let password = "1qaz@WSX3edc";
 
-        let res = User::validate_password(password);
+        let res = (validator.validate_password)(password);
 
         assert!(res.is_ok())
     }
 
     #[test]
     fn validate_password_0_no_special_simbols_0_err() {
+        let validator = CredentialValidator::default();
         let password = "1qaz2WSX3edc";
 
-        let res = User::validate_password(password);
+        let res = (validator.validate_password)(password);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -441,9 +473,10 @@ mod tests {
 
     #[test]
     fn validate_password_0_no_digits_0_err() {
+        let validator = CredentialValidator::default();
         let password = "!qaz@WSX#edc";
 
-        let res = User::validate_password(password);
+        let res = (validator.validate_password)(password);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -451,9 +484,10 @@ mod tests {
 
     #[test]
     fn validate_password_0_no_uppercases_0_err() {
+        let validator = CredentialValidator::default();
         let password = "1qaz@wsx#edc";
 
-        let res = User::validate_password(password);
+        let res = (validator.validate_password)(password);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -461,9 +495,10 @@ mod tests {
 
     #[test]
     fn validate_password_0_no_lowercases_0_err() {
+        let validator = CredentialValidator::default();
         let password = "1QAZ@WSX3EDC";
 
-        let res = User::validate_password(password);
+        let res = (validator.validate_password)(password);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -471,9 +506,10 @@ mod tests {
 
     #[test]
     fn validate_password_0_too_short_0_err() {
+        let validator = CredentialValidator::default();
         let password = "1qaz@WSX";
 
-        let res = User::validate_password(password);
+        let res = (validator.validate_password)(password);
 
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("validation"))
@@ -806,10 +842,10 @@ mod tests {
         User {
             id: 0,
             username: EXISTING_USERNAME.to_string(),
+            blocked,
             pwd_hash: hasher::bcrypt_hash("123").unwrap(),
             created_at: now,
-            updated_at: now,
-            blocked
+            updated_at: now            
         }
     }
 
