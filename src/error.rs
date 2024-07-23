@@ -18,7 +18,9 @@ pub enum AuthError {
     /// Error connected with `UserRepository`
     AuthRepositoryError(String),
     /// User with not found. Inner string represents info about user
-    UserNotFound(String)
+    UserNotFound(String),
+    /// Current operation is invalid
+    InvalidOperation(String)
 }
 
 impl fmt::Display for AuthError {
@@ -29,7 +31,8 @@ impl fmt::Display for AuthError {
             AuthError::UsernameUnavailable => write!(f, "Provided username is unavailable"),
             AuthError::InvalidCredentials => write!(f, "Invalid credentials"),
             AuthError::AuthRepositoryError(err) => write!(f, "Auth repository error: {err}"),
-            AuthError::UserNotFound(username) => write!(f, "Couldn't find user {username}"),
+            AuthError::UserNotFound(username_or_id) => write!(f, "Couldn't find user {username_or_id}"),
+            AuthError::InvalidOperation(message) => write!(f, "Invalid auth operation: {message}")
         }
     }
 }

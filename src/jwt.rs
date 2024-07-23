@@ -34,10 +34,11 @@ pub struct JwtTokenSettings {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Claims {
     pub(crate) sub: String,
-    pub(crate) exp: usize
+    pub(crate) exp: usize,
+    pub(crate) admin: bool
 }
 
-pub(crate) fn generate_token(user_id: i32, alg: Algorithm, expiration: Duration, key: &[u8]) -> Result<String, AuthError> {
+pub(crate) fn generate_token(user_id: i32, admin: bool, alg: Algorithm, expiration: Duration, key: &[u8]) -> Result<String, AuthError> {
     let exp = Utc::now()
         .checked_add_signed(expiration)
         .unwrap()
@@ -45,7 +46,8 @@ pub(crate) fn generate_token(user_id: i32, alg: Algorithm, expiration: Duration,
 
     let claims = Claims {
         sub: user_id.to_string(),
-        exp
+        exp,
+        admin
     };
 
     encode(&Header::new(alg), &claims, &EncodingKey::from_secret(key))
@@ -68,7 +70,7 @@ mod tests {
         let user_id = 1;
 
         // Act
-        let generate_token_res = generate_token(user_id, Algorithm::HS256, TimeDelta::seconds(10), key.as_bytes());
+        let generate_token_res = generate_token(user_id, false, Algorithm::HS256, TimeDelta::seconds(10), key.as_bytes());
 
         // Arrange
         assert!(generate_token_res.is_ok());
@@ -80,14 +82,17 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = generate_token(user_id, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
+        let admin = true;
+        let token = generate_token(user_id, admin, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
 
         // Act
         let decoded_token = decode_token(&token, Algorithm::HS256, key);
         
         // Arrange
         assert!(decoded_token.is_ok());
-        assert_eq!("1", decoded_token.unwrap().claims.sub);
+        let decoded_token = decoded_token.unwrap();
+        assert_eq!("1", decoded_token.claims.sub);
+        assert_eq!(true, decoded_token.claims.admin);
     }
 
     #[test]
@@ -95,7 +100,7 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = generate_token(user_id, Algorithm::HS256, TimeDelta::minutes(-2), key).unwrap();
+        let token = generate_token(user_id, false, Algorithm::HS256, TimeDelta::minutes(-2), key).unwrap();
 
         // Act
         let decoded_token = decode_token(&token, Algorithm::HS256, key);
@@ -110,7 +115,7 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = generate_token(user_id, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
+        let token = generate_token(user_id, false, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
         // {"sub":"2","iat":1718955601}
         let spoofed_part = "eyJzdWIiOiIyIiwiaWF0IjoxNzE4OTU1NjAxfQ";
 
