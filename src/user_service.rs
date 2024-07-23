@@ -33,7 +33,12 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
 
     /// Updates password for user with provided `access_token`
     pub async fn update_own_password(&self, access_token: &str, old_password: &str, new_password: String) -> Result<(), AuthError> {
-        let mut user = self.get_authenticated_user(access_token, old_password, false).await?;
+        let mut user = self.get_authenticated_user(access_token, false).await?;
+
+        let check_old_pwd_res = hasher::bcrypt_verify(old_password, user.pwd_hash())?;
+        if !check_old_pwd_res {
+            return Err(AuthError::InvalidCredentials);
+        }
 
         (self.cred_validator.validate_password)(&new_password)?;
 
@@ -51,10 +56,15 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
     /// 
     /// Note that this method doesn't use [`CredentialValidator`] for a new password validation to reset password to some default value for example
     pub async fn update_user_password_by_admin(&self, admin_access_token: &str, admin_password: &str, target_user_id: i32, target_user_new_password: String) -> Result<(), AuthError> {
-        let admin = self.get_authenticated_user(admin_access_token, admin_password, true).await?;
+        let admin = self.get_authenticated_user(admin_access_token, true).await?;
 
         if admin.id() == target_user_id {
             return Err(AuthError::InvalidOperation("method is not available to update own password".to_string()));
+        }
+
+        let check_old_pwd_res = hasher::bcrypt_verify(admin_password, admin.pwd_hash())?;
+        if !check_old_pwd_res {
+            return Err(AuthError::InvalidCredentials);
         }
 
         let mut target_user = self.repository.get_user(target_user_id)
@@ -147,7 +157,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         Ok(token_pair)
     }
 
-    async fn get_authenticated_user(&self, access_token: &str, password: &str, check_if_admin: bool) -> Result<TAuthUser, AuthError> {
+    pub(crate) async fn get_authenticated_user(&self, access_token: &str, check_if_admin: bool) -> Result<TAuthUser, AuthError> {
         let decoded_token = jwt::decode_token(
             access_token,
             self.jwt_algorithm,
@@ -165,11 +175,6 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
             .ok_or(AuthError::InvalidCredentials)?;
 
         if user.blocked() {
-            return Err(AuthError::InvalidCredentials);
-        }
-
-        let check_old_pwd_res = hasher::bcrypt_verify(password, user.pwd_hash())?;
-        if !check_old_pwd_res {
             return Err(AuthError::InvalidCredentials);
         }
 
