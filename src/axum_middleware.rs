@@ -13,14 +13,13 @@ pub trait UserServiceState<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
 pub async fn auth_middleware<TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
     State(state): State<Arc<dyn UserServiceState<TAuthUser>>>,
     req: Request<Body>,
-    next: Next,
-    admin_only: bool
+    next: Next
 ) -> Result<Response, AuthError> {
     let auth_header = req.headers().get(http::header::AUTHORIZATION).ok_or(AuthError::Unathorized)?;
     let access_token = auth_header.to_str().map_err(|_| AuthError::Internal("Couldn't handle user token".to_string()))?;
 
     let _ = state.user_service()
-        .get_authenticated_user(access_token, admin_only)
+        .get_authenticated_user(access_token, false)
         .await
         .map_err(|err| err)?;
 
