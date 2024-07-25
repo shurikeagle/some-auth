@@ -20,7 +20,9 @@ pub enum AuthError {
     /// User with not found. Inner string represents info about user
     UserNotFound(String),
     /// Current operation is invalid
-    InvalidOperation(String)
+    InvalidOperation(String),
+    /// User is unathorized
+    Unathorized
 }
 
 impl fmt::Display for AuthError {
@@ -32,7 +34,8 @@ impl fmt::Display for AuthError {
             AuthError::InvalidCredentials => write!(f, "Invalid credentials"),
             AuthError::AuthRepositoryError(err) => write!(f, "Auth repository error: {err}"),
             AuthError::UserNotFound(username_or_id) => write!(f, "Couldn't find user {username_or_id}"),
-            AuthError::InvalidOperation(message) => write!(f, "Invalid auth operation: {message}")
+            AuthError::InvalidOperation(message) => write!(f, "Invalid auth operation: {message}"),
+            AuthError::Unathorized => write!(f, "Unathorized"),
         }
     }
 }
