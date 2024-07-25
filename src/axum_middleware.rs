@@ -11,7 +11,7 @@ pub struct  UserServiceState<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
 
 /// Controls if user is authenticated and optionally checks if user is admin
 pub async fn auth_middleware<TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
-    State(state): State<UserServiceState<TAuthUser>>,
+    State(state): State<Arc<UserServiceState<TAuthUser>>>,
     req: Request,
     next: Next
 ) -> Result<Response, AuthError> {
