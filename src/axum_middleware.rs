@@ -6,7 +6,7 @@ use crate::{AuthError, AuthUser, UserService};
 
 /// Router [`State`] which must be used for [`auth_middleware`]
 pub struct  UserServiceState<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
-    user_service: Arc<UserService<TAuthUser>>
+    pub user_service: Arc<UserService<TAuthUser>>
 }
 
 /// Controls if user is authenticated and optionally checks if user is admin
