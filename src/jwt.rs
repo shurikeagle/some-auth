@@ -55,6 +55,9 @@ pub(crate) fn generate_token(user_id: i32, admin: bool, alg: Algorithm, expirati
 }
 
 pub(crate) fn decode_token(token: &str, alg: Algorithm, key: &[u8]) -> Result<TokenData<Claims>, AuthError> {
+    const BEARER_START: &str = "Bearer ";
+    let token = token.strip_prefix(BEARER_START).unwrap_or(token);
+
     decode::<Claims>(&token, &DecodingKey::from_secret(&key), &Validation::new(alg))
         .map_err(|_| AuthError::InvalidCredentials)
 }
@@ -84,6 +87,24 @@ mod tests {
         let user_id = 1;
         let admin = true;
         let token = generate_token(user_id, admin, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
+
+        // Act
+        let decoded_token = decode_token(&token, Algorithm::HS256, key);
+        
+        // Arrange
+        assert!(decoded_token.is_ok());
+        let decoded_token = decoded_token.unwrap();
+        assert_eq!("1", decoded_token.claims.sub);
+        assert_eq!(true, decoded_token.claims.admin);
+    }
+
+    #[test]
+    fn decode_token_with_bearer_test() {
+        // Arrange
+        let key = "m4HsuPraSekretp455W00rd".as_bytes();
+        let user_id = 1;
+        let admin = true;
+        let token = format!("Bearer {}", generate_token(user_id, admin, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap());
 
         // Act
         let decoded_token = decode_token(&token, Algorithm::HS256, key);
