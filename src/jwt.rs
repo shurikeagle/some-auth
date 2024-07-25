@@ -1,7 +1,7 @@
 use std::fmt;
 
 use chrono::{Duration, TimeDelta, Utc};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
+use jsonwebtoken::{decode, encode, errors::ErrorKind, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AuthError;
@@ -59,7 +59,12 @@ pub(crate) fn decode_token(token: &str, alg: Algorithm, key: &[u8]) -> Result<To
     let token = token.strip_prefix(BEARER_START).unwrap_or(token);
 
     decode::<Claims>(&token, &DecodingKey::from_secret(&key), &Validation::new(alg))
-        .map_err(|_| AuthError::InvalidCredentials)
+        .map_err(|err| {
+            match err.kind() {                
+                ErrorKind::ExpiredSignature => AuthError::Unathorized,
+                _ => AuthError::InvalidCredentials,
+            }
+        })
 }
 
 #[cfg(test)]
@@ -128,7 +133,7 @@ mod tests {
         
         // Arrange
         assert!(decoded_token.is_err());
-        assert!(decoded_token.unwrap_err().to_string().contains("Invalid credentials"))
+        assert!(decoded_token.unwrap_err().to_string().contains("Unathorized"))
     }
 
     #[test]
