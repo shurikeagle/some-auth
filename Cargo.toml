@@ -1,12 +1,12 @@
 [package]
 name = "some-auth"
 description = "This crate provides auth logic usually used in API services (user management and repository, JWT with refresh auth) out of the box."
-version = "0.0.25"
+version = "0.0.26"
 edition = "2021"
 authors = ["shurikeagle <alexander.orlov22@gmail.com>"]
 repository = "https://github.com/shurikeagle/some-auth.git"
 license = "MIT"
-keywords = ["jwt", "auth", "user service", "axum auth", "auth middleware"]
+keywords = ["jwt", "auth", "users", "middleware", "api"]
 
 [dependencies]
 async-trait = "0.1.81"
