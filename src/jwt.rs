@@ -94,7 +94,7 @@ mod tests {
         let token = generate_token(user_id, admin, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
 
         // Act
-        let decoded_token = deode_token(&token, Algorithm::HS256, key);
+        let decoded_token = dede_token(&token, Algorithm::HS256, key);
         
         // Arrange
         assert!(decoded_token.is_ok());
