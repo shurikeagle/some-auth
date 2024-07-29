@@ -1,7 +1,7 @@
 [package]
 name = "some-auth"
 description = "This crate provides auth logic usually used in API services (user management and repository, JWT with refresh auth) out of the box."
-version = "0.0.23"
+version = "0.0.24"
 edition = "2021"
 authors = ["shurikeagle <alexander.orlov22@gmail.com>"]
 repository = "https://github.com/shurikeagle/some-auth.git"
