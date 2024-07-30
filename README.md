@@ -14,14 +14,14 @@ More flexible role logic (with custom roles) will be implemented in the future.
 The crate is under early development right now, some breaking changes may be implemented in the upcoming versions.
 
 ## Setup
-To use crate's functionallity one need to create `UserSerice` which is created with `UserServiceBuilder`.
+To use crate's functionallity one need to create [UserSerice](https://docs.rs/some-auth/latest/some_auth/struct.UserService.html) which is created with [UserServiceBuilder](https://docs.rs/some-auth/latest/some_auth/struct.UserServiceBuilder.html).
 ### default builder
-The easest way to do it is to use `some_auth::default_builder()` method which returns default builder with the following properties:
-- default `AuthUser` (`User`) implementation
+The easest way to do it is to use [some_auth::default_builder()](https://docs.rs/some-auth/latest/some_auth/fn.default_builder.html) method which returns default builder with the following properties:
+- default [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) ([User](https://docs.rs/some-auth/latest/some_auth/struct.User.html)) implementation
 - default credentials validator (see `CredentialValidator.default()`)
 - HMAC SHA-256 algorithm for JWT
 
-The builder requires to specify `AuthRepository` trait implementation with `use_repository` method. Some features with different implementations (pg, mongo for example) will be added into the crate during the time.
+The builder requires to specify [AuthRepository](https://docs.rs/some-auth/latest/some_auth/trait.AuthRepository.html) trait implementation with [use_repository](https://docs.rs/some-auth/latest/some_auth/struct.UserServiceBuilder.html#method.use_repository) method. Some features with different implementations (pg, mongo for example) will be added into the crate during the time.
 
 Example:
 ```rust
@@ -39,7 +39,7 @@ let user_service = some_auth::default_builder()
     .unwrap();
 ```
 
-PgRepository has `impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> for PgRepository` where `AuthUser` is `User` in this case.
+PgRepository has `impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> for PgRepository` where [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) is [User](https://docs.rs/some-auth/latest/some_auth/struct.User.html) in this case.
 Thus, you need to specify all the repository methods, e.g.:
 ```rust
 #[async_trait]
@@ -69,6 +69,10 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
 }
 ```
 
+To use implemented repository correctly in a relational database for example, one need to create two tables there:
+1. A table for users where columns are representing [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) getters;
+2. A table for refresh tokens where resfresh token strings are stored.
+
 You may also use Axum auth middleware to protect your API (available only with `features = [ "axum-auth" ]` feature):
 ```rust
 /// Controls if user is authenticated and optionally checks if user is admin
@@ -92,7 +96,7 @@ let router = Router::new()
 ```
 
 ### manual setup
-To setup `UserService` manually, one need to use:
+To setup [UserSerice](https://docs.rs/some-auth/latest/some_auth/struct.UserService.html) manually, one need to use:
 ```rust
 pub fn builder<TAuthUser: AuthUser + fmt::Debug + Send + Sync>() -> UserServiceBuilder<TAuthUser>
 ```
@@ -118,11 +122,11 @@ This crate uses [jsonwebtoken crate](https://github.com/Keats/jsonwebtoken) for 
 For the operations which require the refresh token, there is an additional check if provided refresh token is actual (see also [Storing the secrets](#Storing-the-secrets)).
 
 ### User validation
-To improve application security, default `CredentialValidator` for user credentials has the following rules:
+To improve application security, default [CredentialValidator](https://docs.rs/some-auth/latest/some_auth/struct.CredentialValidator.html) for user credentials has the following rules:
 - at least 5 characters, a combination of latin letters and numbers with one letter at least for the username
 - at least 12 characters, a combination of latin uppercase and lowercase letters, numbers, and special symbols for the password
 
-But of course sometimes it may be too strong (or too weak). It's possible to configure own `CredentialValidator` in this case.
+But of course sometimes it may be too strong (or too weak). It's possible to configure own [CredentialValidator](https://docs.rs/some-auth/latest/some_auth/struct.CredentialValidator.html) in this case.
 
 ### Storing the secrets
 User model (and, thus, users in repository) keeps password hashed with bcrypt which is well-protected from brute force attacks.
