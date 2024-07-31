@@ -1,3 +1,6 @@
+#[cfg(feature = "pg-repository")]
+pub mod pg_repository;
+
 use std::fmt;
 
 use async_trait::async_trait;
