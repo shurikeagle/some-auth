@@ -11,6 +11,9 @@ Now, the crate is generally focused on async usage, in particular [Axum](https:/
 This crate optionally (with `axum-auth` feature enabled) advices auth middleware. Now there are only two roles available in this middleware: admin and others.
 More flexible role logic (with custom roles) will be implemented in the future.
 
+Now, postgres repository implementation is available (with `pg-repository` feature enabled) to store users and refresh tokens.
+Some features with other implementations (mongo for example) may be added into the crate during the time.
+
 The crate is under early development right now, some breaking changes may be implemented in the upcoming versions.
 
 ## Setup
@@ -22,8 +25,7 @@ The easest way to do it is to use [some_auth::default_builder()](https://docs.rs
 - HMAC SHA-256 algorithm for JWT
 
 The builder requires to specify [AuthRepository](https://docs.rs/some-auth/latest/some_auth/trait.AuthRepository.html) trait implementation with [use_repository](https://docs.rs/some-auth/latest/some_auth/struct.UserServiceBuilder.html#method.use_repository) method.
-In this example, we'll use [PgAuthRepository](https://docs.rs/some-auth/latest/some_auth/struct.PgAuthRepository.html) (postgres repository) which is available with `pg-repository` feature. To see tables scheme, see `src/repository/pg_repository.sql`
-Some features with other implementations (mongo for example) will be added into the crate during the time.
+In this example, we'll use `PgAuthRepository` (postgres repository) which is available with `pg-repository` feature. To see tables scheme, see `src/repository/pg_repository.sql`
 
 Example:
 ```rust
@@ -70,7 +72,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
 }
 ```
 
-Thus, to use implemented repository correctly in a relational database for example, one need to create two tables there:
+Thus, to use implemented repository correctly in a relational database (as postgres in the example), one need to create two tables there:
 1. A table for users where columns are representing [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) getters;
 2. A table for refresh tokens where resfresh token strings are stored.
 
