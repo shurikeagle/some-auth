@@ -12,3 +12,5 @@ pub use jwt::{ JwtTokenSettings, TokenPair };
 pub use repository::AuthRepository;
 #[cfg(feature = "axum-auth")]
 pub use axum_middleware::{ UserServiceState, auth_middleware };
+#[cfg(feature = "pg-repository")]
+pub use repository::pg_repository::PgAuthRepository;

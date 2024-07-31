@@ -21,11 +21,13 @@ The easest way to do it is to use [some_auth::default_builder()](https://docs.rs
 - default credentials validator (see `CredentialValidator.default()`)
 - HMAC SHA-256 algorithm for JWT
 
-The builder requires to specify [AuthRepository](https://docs.rs/some-auth/latest/some_auth/trait.AuthRepository.html) trait implementation with [use_repository](https://docs.rs/some-auth/latest/some_auth/struct.UserServiceBuilder.html#method.use_repository) method. Some features with different implementations (pg, mongo for example) will be added into the crate during the time.
+The builder requires to specify [AuthRepository](https://docs.rs/some-auth/latest/some_auth/trait.AuthRepository.html) trait implementation with [use_repository](https://docs.rs/some-auth/latest/some_auth/struct.UserServiceBuilder.html#method.use_repository) method.
+In this example, we'll use [PgAuthRepository](https://docs.rs/some-auth/latest/some_auth/struct.PgAuthRepository.html) (postgres repository) which is available with `pg-repository` feature. To see tables scheme, see `src/repository/pg_repository.sql`
+Some features with other implementations (mongo for example) will be added into the crate during the time.
 
 Example:
 ```rust
-let repository = Arc::new(PgRepository::create("postgresql://postgres:postgres@localhost:5432/postgres".to_string()).await.unwrap());
+let repository = Arc::new(PgAuthRepository::create("postgresql://postgres:postgres@localhost:5432/postgres".to_string()).await.unwrap());
 let jwt_token_settings = JwtTokenSettings {
     access_tokens_secret: "supersecret".to_string(),
     access_tokens_lifetime: TimeDelta::minutes(10),
@@ -39,8 +41,7 @@ let user_service = some_auth::default_builder()
     .unwrap();
 ```
 
-PgRepository has `impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> for PgRepository` where [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) is [User](https://docs.rs/some-auth/latest/some_auth/struct.User.html) in this case.
-Thus, you need to specify all the repository methods, e.g.:
+PgAuthRepository has `impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> for PgRepository` where [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) is [User](https://docs.rs/some-auth/latest/some_auth/struct.User.html) in this case:
 ```rust
 #[async_trait]
 impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> for PgRepository {
@@ -65,11 +66,11 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
         Ok(created_res.get("id"))
     }
 
-    ...
+    ...other methods...
 }
 ```
 
-To use implemented repository correctly in a relational database for example, one need to create two tables there:
+Thus, to use implemented repository correctly in a relational database for example, one need to create two tables there:
 1. A table for users where columns are representing [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) getters;
 2. A table for refresh tokens where resfresh token strings are stored.
 
