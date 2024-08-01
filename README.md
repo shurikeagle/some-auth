@@ -121,7 +121,7 @@ pub fn use_repository(mut self, repository: Arc<dyn AuthRepository<TAuthUser> + 
 
 ## Security methods
 ### JWT
-This crate uses [jsonwebtoken crate](https://github.com/Keats/jsonwebtoken) for JWT. Now, only symmetric crypto algorithms (HMAC with different SHA) are available. The asymethric algorims may be available in the future. JWT secrets and lifetime are configurable.
+This crate uses [jsonwebtoken crate](https://github.com/Keats/jsonwebtoken) for JWT. Now, only symmetric crypto algorithms (HMAC with different SHA) are available. The asymmethric algorims may be available in the future. JWT secrets and lifetime are configurable.
 For the operations which require the refresh token, there is an additional check if provided refresh token is actual (see also [Storing the secrets](#Storing-the-secrets)).
 
 ### User validation
