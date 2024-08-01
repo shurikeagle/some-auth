@@ -4,7 +4,7 @@
 This crate provides auth logic usually used in API services (user management and repository, JWT with refresh auth) out of the box.
 For a more detailed description of the security methods used in this crate see [Security methods](#Security-methods).
 
-[docs.rs](https://docs.rs/some-auth/latest/some_auth/)
+[crates.io](https://crates.io/crates/some-auth)
 
 Now, the crate is generally focused on async usage, in particular [Axum](https://github.com/tokio-rs/axum).
 
@@ -17,6 +17,11 @@ Some features with other implementations (mongo for example) may be added into t
 The crate is under early development right now, some breaking changes may be implemented in the upcoming versions.
 
 ## Setup
+Add some-auth crate into your project (with `axum-auth` and `pg-repository` optional features which will be described below):
+```bash
+cargo add some-auth --features axum-auth,pg-repository
+```
+
 To use crate's functionallity one need to create [UserSerice](https://docs.rs/some-auth/latest/some_auth/struct.UserService.html) which is created with [UserServiceBuilder](https://docs.rs/some-auth/latest/some_auth/struct.UserServiceBuilder.html).
 ### default builder
 The easest way to do it is to use [some_auth::default_builder()](https://docs.rs/some-auth/latest/some_auth/fn.default_builder.html) method which returns default builder with the following properties:

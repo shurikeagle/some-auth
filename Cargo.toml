@@ -1,6 +1,6 @@
 [package]
 name = "some-auth"
-description = "Provides auth logic usually used in API services (user management and repository, JWT with refresh auth)."
+description = "User management and JWT logic for API services."
 version = "0.0.31"
 edition = "2021"
 authors = ["shurikeagle <alexander.orlov22@gmail.com>"]
