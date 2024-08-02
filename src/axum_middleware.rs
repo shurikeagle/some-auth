@@ -37,11 +37,11 @@ pub struct  UserServiceState<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
 }
 
 /// Controls if user is authenticated and checks their role aacording to [`RoleFilter`]
-pub async fn auth_middleware<TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
+pub async fn auth_middleware<'a, TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
     State(state): State<Arc<UserServiceState<TAuthUser>>>,
     req: Request,
     next: Next,
-    role_filter: Option<RoleFilter>
+    role_filter: Option<RoleFilter<'a>>
 ) -> Result<Response, AuthError> {
     let auth_header = req.headers().get(http::header::AUTHORIZATION).ok_or(AuthError::Unathorized)?;
     let access_token = auth_header.to_str().map_err(|_| AuthError::Internal("Couldn't handle user token".to_string()))?;

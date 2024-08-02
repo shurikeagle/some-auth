@@ -153,16 +153,20 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         Ok(token_pair)
     }
 
-    pub(crate) async fn get_authenticated_user(&self, access_token: &str, role_filter: Option<RoleFilter>) -> Result<TAuthUser, AuthError> {
+    pub(crate) async fn get_authenticated_user<'a>(&self, access_token: &str, role_filter: Option<RoleFilter<'a>>) -> Result<TAuthUser, AuthError> {
         let decoded_token = jwt::decode_token(
             access_token,
             self.jwt_algorithm,
             self.jwt_token_settings.access_tokens_secret.as_bytes())?;
 
         if let Some(roles_with_access) = role_filter {
+            if roles_with_access.len() == 0 {
+                return Err(AuthError::InvalidOperation("Role filter must be specified or None".to_string()))
+            }
+
             let user_has_required_role = decoded_token.claims.roles
                 .iter()
-                .any(|ur| roles_with_access.contains(ur));
+                .any(|ur| roles_with_access.iter().any(|rwa| rwa == ur));
 
             if !user_has_required_role {
                 return Err(AuthError::InvalidCredentials);
@@ -376,7 +380,7 @@ pub trait AuthUser {
 }
 
 /// Filter to specify for which roles api method may be accessible 
-pub type RoleFilter = Vec<String>;
+pub type RoleFilter<'a> = Vec<&'a str>;
 
 /// User's role
 #[derive(Debug, Clone)]
@@ -662,7 +666,7 @@ mod tests {
         let token_pair = user_service.generate_token_pair(user.id, &vec!["some_role".to_string(), "one_more_role".to_string()]).unwrap();
 
         // Act
-        let res = user_service.get_authenticated_user(&token_pair.access, Some(vec!["some_role".to_string(), "admin".to_string()])).await;
+        let res = user_service.get_authenticated_user(&token_pair.access, Some(vec!["some_role", "admin"])).await;
 
         // Assert
         assert!(res.is_ok());
@@ -676,7 +680,7 @@ mod tests {
         let token_pair = user_service.generate_token_pair(user.id, &vec!["some_role".to_string()]).unwrap();
 
         // Act
-        let res = user_service.get_authenticated_user(&token_pair.access, Some(vec!["admin".to_string()])).await;
+        let res = user_service.get_authenticated_user(&token_pair.access, Some(vec!["admin"])).await;
 
         // Assert
         assert!(res.is_err());
