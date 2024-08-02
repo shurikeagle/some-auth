@@ -13,7 +13,7 @@ static SELECT_ALL_FROM_USERS: &str = "\
         id,
         username,
         pwd_hash,
-        admin,
+        blocked,
         created_at,
         updated_at
     FROM users
