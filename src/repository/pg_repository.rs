@@ -4,7 +4,7 @@ use std::fmt;
 use axum::async_trait;
 use tokio_postgres::NoTls;
 
-use crate::AuthUser;
+use crate::{user_service::Role, AuthUser};
 
 use super::AuthRepository;
 
@@ -14,7 +14,6 @@ static SELECT_ALL_FROM_USERS: &str = "\
         username,
         pwd_hash,
         admin,
-        blocked,
         created_at,
         updated_at
     FROM users
@@ -55,12 +54,11 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
 
         let created_res = client.query_one("\
             INSERT INTO users (username, pwd_hash, admin, blocked, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id;",
             &[
                 &user.username(),
                 &user.pwd_hash(),
-                &user.admin(),
                 &user.blocked(),
                 &user.created_at(),
                 &user.updated_at()
@@ -141,13 +139,35 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
         let query = format!("\
             SELECT token_hash
             FROM refreshes
-            WHERE user_id=$1");
+            WHERE user_id = $1");
         let row = client.query_opt(&query, &[&user_id])
             .await
             .map_err(|err| err.to_string())?
             .map(|row| row.get("token_hash"));
 
         Ok(row)
+    }
+
+    async fn get_user_roles(&self, user_id: i32) -> Result<Vec<Role>, String> {
+        let client = open_connection(&self.conn_string).await.map_err(|err| err.to_string())?;
+
+        let result = client.query("
+            SELECT r.id, r.name, r.created_at, r.updated_at
+            FROM users_roles ur
+            INNER JOIN roles r
+            ON ur.role_id = r.id
+            WHERE ur.user_id = $1", &[&user_id])
+            .await
+            .map_err(|err| err.to_string())?
+            .iter()
+            .map(|row| Role::existing(
+                row.get("id"),
+                row.get("name"),
+                row.get("created_at"),
+                row.get("updated_at")))
+            .collect();
+
+        Ok(result)
     }
 }
 
@@ -166,7 +186,6 @@ fn map_to_user<TAuthUser: AuthUser + fmt::Debug + Sync + Send>(row: &tokio_postg
         row.get("id"),
         row.get("username"),
         row.get("pwd_hash"),
-        row.get("admin"),
         row.get("blocked"),
         row.get("created_at"),
         row.get("updated_at"))

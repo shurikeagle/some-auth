@@ -1,7 +1,7 @@
 [package]
 name = "some-auth"
 description = "User management and JWT logic for API services."
-version = "0.0.31"
+version = "0.1.0"
 edition = "2021"
 authors = ["shurikeagle <alexander.orlov22@gmail.com>"]
 repository = "https://github.com/shurikeagle/some-auth.git"

@@ -16,7 +16,7 @@ pub struct UserService<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
 
 impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
     /// Creates new user and returns created id
-    pub async fn create_user(&self, username: String, password: String, admin: bool) -> Result<i32, AuthError> {
+    pub async fn create_user(&self, username: String, password: String) -> Result<i32, AuthError> {
         if let Some(_) = self.repository.get_user_by_username(&username).await.map_err(|err| AuthError::AuthRepositoryError(err))? {
             return Err(AuthError::UsernameUnavailable)
         }
@@ -26,14 +26,14 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
 
         let pwd_hash = hasher::bcrypt_hash(&password)?;
 
-        let user = TAuthUser::new(username, pwd_hash, admin);
+        let user = TAuthUser::new(username, pwd_hash);
 
         self.repository.add_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))
     }
 
     /// Updates password for user with provided `access_token`
     pub async fn update_own_password(&self, access_token: &str, old_password: &str, new_password: String) -> Result<(), AuthError> {
-        let mut user = self.get_authenticated_user(access_token, false).await?;
+        let mut user = self.get_authenticated_user(access_token, None).await?;
 
         let check_old_pwd_res = hasher::bcrypt_verify(old_password, user.pwd_hash())?;
         if !check_old_pwd_res {
@@ -52,21 +52,11 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         self.repository.update_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))
     }
 
-    /// Updates user password by provided admin `admin_access_token`.
+    /// Updates other user's password
     /// 
     /// Note that this method doesn't use [`CredentialValidator`] for a new password validation to reset password to some default value for example
-    pub async fn update_user_password_by_admin(&self, admin_access_token: &str, admin_password: &str, target_user_id: i32, target_user_new_password: String) -> Result<(), AuthError> {
-        let admin = self.get_authenticated_user(admin_access_token, true).await?;
-
-        if admin.id() == target_user_id {
-            return Err(AuthError::InvalidOperation("method is not available to update own password".to_string()));
-        }
-
-        let check_old_pwd_res = hasher::bcrypt_verify(admin_password, admin.pwd_hash())?;
-        if !check_old_pwd_res {
-            return Err(AuthError::InvalidCredentials);
-        }
-
+    /// Also, this method is not recommended for self-update, use [`update_own_password`] instead
+    pub async fn update_other_user_password(&self, target_user_id: i32, target_user_new_password: String) -> Result<(), AuthError> {
         let mut target_user = self.repository.get_user(target_user_id)
             .await
             .map_err(|err| AuthError::AuthRepositoryError(err))?
@@ -116,7 +106,13 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
             return Err(AuthError::InvalidCredentials);
         }
 
-        let token_pair = self.generate_token_pair(user.id(), user.admin())?;
+        let user_roles = self.repository.get_user_roles(user.id()).await
+            .map_err(|err| AuthError::AuthRepositoryError(err))?
+            .iter()
+            .map(|r| r.name.clone())
+            .collect();
+
+        let token_pair = self.generate_token_pair(user.id(), &user_roles)?;
 
         self.update_hashed_refresh_in_repo(user.id(), &token_pair.refresh).await?;
 
@@ -150,21 +146,27 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
             return Err(AuthError::InvalidCredentials);
         }
 
-        let token_pair = self.generate_token_pair(user_id, decoded_token.claims.admin)?;
+        let token_pair = self.generate_token_pair(user_id, &decoded_token.claims.roles)?;
 
         self.update_hashed_refresh_in_repo(user_id, &token_pair.refresh).await?;
 
         Ok(token_pair)
     }
 
-    pub(crate) async fn get_authenticated_user(&self, access_token: &str, check_if_admin: bool) -> Result<TAuthUser, AuthError> {
+    pub(crate) async fn get_authenticated_user(&self, access_token: &str, role_filter: Option<RoleFilter>) -> Result<TAuthUser, AuthError> {
         let decoded_token = jwt::decode_token(
             access_token,
             self.jwt_algorithm,
             self.jwt_token_settings.access_tokens_secret.as_bytes())?;
 
-        if check_if_admin && !decoded_token.claims.admin {
-            return Err(AuthError::InvalidCredentials);
+        if let Some(roles_with_access) = role_filter {
+            let user_has_required_role = decoded_token.claims.roles
+                .iter()
+                .any(|ur| roles_with_access.contains(ur));
+
+            if !user_has_required_role {
+                return Err(AuthError::InvalidCredentials);
+            }
         }
 
         let user_id: i32 = decoded_token.claims.sub.parse().map_err(|_| AuthError::InvalidCredentials)?;
@@ -188,17 +190,17 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
             .map_err(|err| AuthError::AuthRepositoryError(err))?)
     }
 
-    fn generate_token_pair(&self, user_id: i32, admin: bool) -> Result<TokenPair, AuthError> {
+    fn generate_token_pair(&self, user_id: i32, roles: &Vec<String>) -> Result<TokenPair, AuthError> {
         let refresh_token = jwt::generate_token(
             user_id,
-            admin,
+            roles,
             self.jwt_algorithm,
             self.jwt_token_settings.refresh_tokens_lifetime,
             self.jwt_token_settings.refresh_tokens_secret.as_bytes())?;
 
         let access_token = jwt::generate_token(
             user_id,
-            admin,
+            roles,
             self.jwt_algorithm,
             self.jwt_token_settings.access_tokens_lifetime,
             self.jwt_token_settings.access_tokens_secret.as_bytes())?;
@@ -353,17 +355,16 @@ impl CredentialValidator {
 pub trait AuthUser {
     /// Creates new user
     /// (implement validation in  validation requires in implementation)
-    fn new(username: String, pwd_hash: String, admin: bool) -> Self;
+    fn new(username: String, pwd_hash: String) -> Self;
 
     /// for mapping purposes
-    fn existing(id: i32, username: String, pwd_hash: String, admin: bool, blocked: bool, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Self;
+    fn existing(id: i32, username: String, pwd_hash: String, blocked: bool, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Self;
 
     // getters
     fn id(&self) -> i32;
     fn username(&self) -> &str;
     /// Password hash
     fn pwd_hash(&self) -> &str;
-    fn admin(&self) -> bool;
     fn blocked(&self) -> bool;
     fn created_at(&self) -> DateTime<Utc>;
     fn updated_at(&self) -> DateTime<Utc>;
@@ -374,13 +375,54 @@ pub trait AuthUser {
     fn set_blocked(&mut self, value: bool);
 }
 
+/// Filter to specify for which roles api method may be accessible 
+pub type RoleFilter = Vec<String>;
+
+/// User's role
+#[derive(Debug, Clone)]
+pub struct Role {
+    id: i32,
+    name: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>
+}
+
+impl Role {
+    /// Creates new role
+    pub fn new(name: String) -> Role {
+        let now: DateTime<Utc> = Utc::now();
+
+        Role {
+            id: 0,
+            name,
+            created_at: now,
+            updated_at: now
+        }
+    }
+
+    /// for mapping purposes only
+    pub fn existing(id: i32, name: String, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Role {
+        Role {
+            id,
+            name,
+            created_at,
+            updated_at
+        }
+    }
+
+    //getters
+    pub fn id(&self) -> i32 { self.id }
+    pub fn name(&self) -> &str { &self.name }
+    pub fn created_at(&self) -> DateTime<Utc> { self.created_at }
+    pub fn updated_at(&self) -> DateTime<Utc> { self.updated_at }
+}
+
 /// Default implementation of [`AuthUser`]
 #[derive(Clone)]
 pub struct User {
     id: i32,
     username: String,
     pwd_hash: String,
-    admin: bool,
     blocked: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>
@@ -394,33 +436,30 @@ impl fmt::Debug for User {
             .field("pwd_hash", &"***")
             .field("created_at", &self.created_at)
             .field("updated_at", &self.updated_at)
-            .field("blocked", &self.admin)
             .field("blocked", &self.blocked)
             .finish()
     }
 }
 
 impl AuthUser for User {
-    fn new(username: String, pwd_hash: String, admin: bool) -> Self {
+    fn new(username: String, pwd_hash: String) -> Self {
         let now: DateTime<Utc> = Utc::now();
 
         User {
             id: 0,
             username,
             pwd_hash,
-            admin,
             blocked: false,
             created_at: now,
             updated_at: now,
         }
     }
     
-    fn existing(id: i32, username: String, pwd_hash: String, admin: bool, blocked: bool, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Self {
+    fn existing(id: i32, username: String, pwd_hash: String, blocked: bool, created_at: DateTime<Utc>, updated_at: DateTime<Utc>) -> Self {
         User {
             id,
             username,
             pwd_hash,
-            admin,
             blocked,
             created_at,
             updated_at            
@@ -430,7 +469,6 @@ impl AuthUser for User {
     fn id(&self) -> i32 { self.id }
     fn username(&self) -> &str { &self.username }
     fn pwd_hash(&self) -> &str { &self.pwd_hash }
-    fn admin(&self) -> bool { self.admin }
     fn blocked(&self) -> bool { self.blocked }
     fn created_at(&self) -> DateTime<Utc> { self.created_at }
     fn updated_at(&self) -> DateTime<Utc> { self.updated_at }
@@ -443,7 +481,7 @@ impl AuthUser for User {
 #[cfg(test)]
 mod tests {    
     use std::{thread::sleep, time::Duration};
-
+    
     use mockall::predicate;
 
     use crate::repository::MockAuthRepository;
@@ -574,7 +612,7 @@ mod tests {
         let user_service = build_user_service(false, "".to_string());
 
         // Act
-        let res = user_service.create_user(AVAILABLE_USERNAME.to_string(), "1qaz@WSX3edc".to_string(), false).await;
+        let res = user_service.create_user(AVAILABLE_USERNAME.to_string(), "1qaz@WSX3edc".to_string()).await;
 
         //Assert
         assert!(res.is_ok());
@@ -587,7 +625,7 @@ mod tests {
         let user_service = build_user_service(false, "".to_string());
 
         // Act
-        let res = user_service.create_user(EXISTING_USERNAME.to_string(), "1qaz@WSX3edc".to_string(), false).await;
+        let res = user_service.create_user(EXISTING_USERNAME.to_string(), "1qaz@WSX3edc".to_string()).await;
 
         //Assert
         assert!(res.is_err());
@@ -600,8 +638,8 @@ mod tests {
         let user_service = build_user_service(false, "".to_string());
 
         // Act
-        let bad_username = user_service.create_user("usr".to_string(), "1qaz@WSX3edc".to_string(), false).await;
-        let bad_pwd = user_service.create_user(AVAILABLE_USERNAME.to_string(), "1qaz".to_string(), false).await;
+        let bad_username = user_service.create_user("usr".to_string(), "1qaz@WSX3edc".to_string()).await;
+        let bad_pwd = user_service.create_user(AVAILABLE_USERNAME.to_string(), "1qaz".to_string()).await;
 
         //Assert
         assert!(bad_username.is_err());
@@ -617,11 +655,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_authenticated_user_0_correct_role_0_ok() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+        let user = get_existing_user(false);
+        let token_pair = user_service.generate_token_pair(user.id, &vec!["some_role".to_string(), "one_more_role".to_string()]).unwrap();
+
+        // Act
+        let res = user_service.get_authenticated_user(&token_pair.access, Some(vec!["some_role".to_string(), "admin".to_string()])).await;
+
+        // Assert
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_authenticated_user_0_not_in_role_0_returns_error() {
+        // Arrange
+        let user_service = build_user_service(false, "".to_string());
+        let user = get_existing_user(false);
+        let token_pair = user_service.generate_token_pair(user.id, &vec!["some_role".to_string()]).unwrap();
+
+        // Act
+        let res = user_service.get_authenticated_user(&token_pair.access, Some(vec!["admin".to_string()])).await;
+
+        // Assert
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            AuthError::InvalidCredentials => (),
+            _ => panic!("Error is not InvalidCredentials")
+        }
+    }
+
+    #[tokio::test]
     async fn update_own_password_test() {
         // Arrange
         let user_service = build_user_service(false, "".to_string());
         let user = get_existing_user(false);
-        let token_pair = user_service.generate_token_pair(user.id, false).unwrap();
+        let token_pair = user_service.generate_token_pair(user.id, &vec![]).unwrap();
 
         // Act
         let res = user_service.update_own_password(&token_pair.access, "123", "1qaz@WSX3edc".to_string()).await;
@@ -634,7 +704,7 @@ mod tests {
     async fn update_own_password_0_invalid_password_0_returns_error() {
         // Arrange
         let user_service = build_user_service(false, "".to_string());
-        let token_pair = user_service.generate_token_pair(0, false).unwrap();
+        let token_pair = user_service.generate_token_pair(0, &vec![]).unwrap();
 
         // Act
         let res = user_service.update_own_password(&token_pair.access, "321", "1qaz@WSX3edc".to_string()).await;
@@ -651,7 +721,7 @@ mod tests {
     async fn update_own_password_0_blocked_user_0_returns_error() {
         // Arrange
         let user_service = build_user_service(true, "".to_string());
-        let token_pair = user_service.generate_token_pair(0, false).unwrap();
+        let token_pair = user_service.generate_token_pair(0, &vec![]).unwrap();
 
         // Act
         let res = user_service.update_own_password(&token_pair.access, "123", "1qaz@WSX3edc".to_string()).await;
@@ -668,7 +738,7 @@ mod tests {
     async fn update_own_password_0_weak_password_0_returns_error() {
         // Arrange
         let user_service = build_user_service(false, "".to_string());
-        let token_pair = user_service.generate_token_pair(0, false).unwrap();
+        let token_pair = user_service.generate_token_pair(0, &vec![]).unwrap();
 
         // Act
         let res = user_service.update_own_password(&token_pair.access, "123", "321".to_string()).await;
@@ -686,48 +756,12 @@ mod tests {
         // Arrange
         let user_service = build_user_service(false, "".to_string());
         let user = get_existing_user(false);
-        let admin_token_pair = user_service.generate_token_pair(ADMIN_ID, true).unwrap();
 
         // Act
-        let res = user_service.update_user_password_by_admin(&admin_token_pair.access, "456", user.id(), "1qaz".to_string()).await;
+        let res = user_service.update_other_user_password(user.id(), "1qaz".to_string()).await;
 
         //Assert
         assert!(res.is_ok());
-    }
-
-    #[tokio::test]
-    async fn update_user_password_by_admin_0_not_admin_0_returns_invalid_credentials() {
-        // Arrange
-        let user_service = build_user_service(false, "".to_string());
-        let user = get_existing_user(false);
-        let admin_token_pair = user_service.generate_token_pair(ADMIN_ID, false).unwrap();
-
-        // Act
-        let res = user_service.update_user_password_by_admin(&admin_token_pair.access, "456", user.id(), "1qaz".to_string()).await;
-
-        //Assert
-        assert!(res.is_err());
-        match res.unwrap_err() {
-            AuthError::InvalidCredentials => (),
-            _ => panic!("Error is not InvalidCredentials")
-        }
-    }
-
-    #[tokio::test]
-    async fn update_user_password_by_admin_0_self_update_0_returns_invalid_operation() {
-        // Arrange
-        let user_service = build_user_service(false, "".to_string());
-        let admin_token_pair = user_service.generate_token_pair(ADMIN_ID, true).unwrap();
-
-        // Act
-        let res = user_service.update_user_password_by_admin(&admin_token_pair.access, "456", ADMIN_ID, "1qaz".to_string()).await;
-
-        //Assert
-        assert!(res.is_err());
-        match res.unwrap_err() {
-            AuthError::InvalidOperation(message) => assert!(message.contains("own")),
-            _ => panic!("Error is not InvalidOperation")
-        }
     }
 
     #[tokio::test]
@@ -735,10 +769,9 @@ mod tests {
         // Arrange
         let user_service = build_user_service(true, "".to_string());
         let user = get_existing_user(false);
-        let admin_token_pair = user_service.generate_token_pair(ADMIN_ID, true).unwrap();
 
         // Act
-        let res = user_service.update_user_password_by_admin(&admin_token_pair.access, "456", user.id(), "1qaz".to_string()).await;
+        let res = user_service.update_other_user_password(user.id(), "1qaz".to_string()).await;
 
         //Assert
         assert!(res.is_err());
@@ -790,6 +823,12 @@ mod tests {
         let token_pair = res.unwrap();
         assert!(token_pair.access != "");
         assert!(token_pair.refresh != "");
+
+        let decoded = jwt::decode_token(&token_pair.access, Algorithm::HS256, "Sup$rS4ccrettt".as_bytes());
+        assert!(decoded.is_ok());
+        let claims = decoded.unwrap().claims;
+        assert!(claims.roles.iter().any(|r| r == "admin"));
+        assert!(claims.roles.iter().any(|r| r == "adm"));
     }
 
     #[tokio::test]
@@ -959,16 +998,20 @@ mod tests {
             .with(predicate::always())
             .returning(move |_| Ok(Some(hasher::sha256_hash(&user_refresh_token))));
 
+        repository_mock
+            .expect_get_user_roles()
+            .with(predicate::always())
+            .returning(move |_| Ok(vec![Role::existing(1, "admin".to_string(), Utc::now(), Utc::now()), Role::existing(2, "adm".to_string(), Utc::now(), Utc::now())]));
+
         builder.use_repository(Arc::new(repository_mock)).build().unwrap()
     }
 
     fn get_existing_user(blocked: bool) -> User {
-        let now = Utc::now();
+        let now: DateTime<Utc> = Utc::now();
 
         User {
             id: 0,
             username: EXISTING_USERNAME.to_string(),
-            admin: false,
             blocked,
             pwd_hash: hasher::bcrypt_hash("123").unwrap(),
             created_at: now,
@@ -979,7 +1022,7 @@ mod tests {
     fn get_user_refresh_token(user_id: i32) -> String {
         jwt::generate_token(
             user_id,
-            false,
+            &vec![],
             Algorithm::HS256,
             TimeDelta::days(7),
             "AnotherSup$rS4ccrettt".as_bytes())
@@ -992,7 +1035,6 @@ mod tests {
         User {
             id: ADMIN_ID,
             username: "admin".to_string(),
-            admin: true,
             blocked: false,
             pwd_hash: hasher::bcrypt_hash("456").unwrap(),
             created_at: now,

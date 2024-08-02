@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use mockall::automock;
 
-use crate::user_service::AuthUser;
+use crate::user_service::{AuthUser, Role};
 
 /// Auth repository which is used in [`UserService`]
 #[automock]
@@ -21,4 +21,5 @@ pub trait AuthRepository<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     async fn update_user_refresh_token(&self, user_id: i32, token_hash: &str, time_updated: DateTime<Utc>) -> Result<(), String>;
     /// returns token's hash
     async fn get_user_refresh_token(&self, user_id: i32) -> Result<Option<String>, String>;
+    async fn get_user_roles(&self, user_id: i32) -> Result<Vec<Role>, String>;
 }

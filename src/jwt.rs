@@ -35,10 +35,10 @@ pub struct JwtTokenSettings {
 pub(crate) struct Claims {
     pub(crate) sub: String,
     pub(crate) exp: usize,
-    pub(crate) admin: bool
+    pub(crate) roles: Vec<String>
 }
 
-pub(crate) fn generate_token(user_id: i32, admin: bool, alg: Algorithm, expiration: Duration, key: &[u8]) -> Result<String, AuthError> {
+pub(crate) fn generate_token(user_id: i32, roles: &Vec<String>, alg: Algorithm, expiration: Duration, key: &[u8]) -> Result<String, AuthError> {
     let exp = Utc::now()
         .checked_add_signed(expiration)
         .unwrap()
@@ -47,7 +47,7 @@ pub(crate) fn generate_token(user_id: i32, admin: bool, alg: Algorithm, expirati
     let claims = Claims {
         sub: user_id.to_string(),
         exp,
-        admin
+        roles: roles.iter().map(|s| s.to_string()).collect()
     };
 
     encode(&Header::new(alg), &claims, &EncodingKey::from_secret(key))
@@ -76,9 +76,10 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd";
         let user_id = 1;
+        let user_roles = vec!["admin".to_string(), "adm".to_string()];
 
         // Act
-        let generate_token_res = generate_token(user_id, false, Algorithm::HS256, TimeDelta::seconds(10), key.as_bytes());
+        let generate_token_res = generate_token(user_id, &user_roles, Algorithm::HS256, TimeDelta::seconds(10), key.as_bytes());
 
         // Arrange
         assert!(generate_token_res.is_ok());
@@ -90,8 +91,8 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let admin = true;
-        let token = generate_token(user_id, admin, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
+        let user_roles = vec!["admin".to_string(), "adm".to_string()];
+        let token = generate_token(user_id, &user_roles, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
 
         // Act
         let decoded_token = decode_token(&token, Algorithm::HS256, key);
@@ -100,7 +101,8 @@ mod tests {
         assert!(decoded_token.is_ok());
         let decoded_token = decoded_token.unwrap();
         assert_eq!("1", decoded_token.claims.sub);
-        assert_eq!(true, decoded_token.claims.admin);
+        assert!(decoded_token.claims.roles.iter().any(|r| r == "admin"));
+        assert!(decoded_token.claims.roles.iter().any(|r| r == "adm"));
     }
 
     #[test]
@@ -108,8 +110,8 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let admin = true;
-        let token = format!("Bearer {}", generate_token(user_id, admin, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap());
+        let user_roles = vec!["admin".to_string(), "adm".to_string()];
+        let token = format!("Bearer {}", generate_token(user_id, &user_roles, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap());
 
         // Act
         let decoded_token = decode_token(&token, Algorithm::HS256, key);
@@ -118,7 +120,8 @@ mod tests {
         assert!(decoded_token.is_ok());
         let decoded_token = decoded_token.unwrap();
         assert_eq!("1", decoded_token.claims.sub);
-        assert_eq!(true, decoded_token.claims.admin);
+        assert!(decoded_token.claims.roles.iter().any(|r| r == "admin"));
+        assert!(decoded_token.claims.roles.iter().any(|r| r == "adm"));
     }
 
     #[test]
@@ -126,7 +129,7 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = generate_token(user_id, false, Algorithm::HS256, TimeDelta::minutes(-2), key).unwrap();
+        let token = generate_token(user_id, &vec![], Algorithm::HS256, TimeDelta::minutes(-2), key).unwrap();
 
         // Act
         let decoded_token = decode_token(&token, Algorithm::HS256, key);
@@ -141,7 +144,7 @@ mod tests {
         // Arrange
         let key = "m4HsuPraSekretp455W00rd".as_bytes();
         let user_id = 1;
-        let token = generate_token(user_id, false, Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
+        let token = generate_token(user_id, &vec![], Algorithm::HS256, TimeDelta::seconds(10), key).unwrap();
         // {"sub":"2","iat":1718955601}
         let spoofed_part = "eyJzdWIiOiIyIiwiaWF0IjoxNzE4OTU1NjAxfQ";
 
