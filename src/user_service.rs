@@ -31,6 +31,11 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         self.repository.add_user(&user).await.map_err(|err| AuthError::AuthRepositoryError(err))
     }
 
+    /// Gets all existing users
+    pub async fn get_users(&self) -> Result<Vec<TAuthUser>, AuthError> {
+        Ok(self.repository.get_users().await.map_err(|err| AuthError::AuthRepositoryError(err))?)
+    }
+
     /// Updates password for user with provided `access_token`
     pub async fn update_own_password(&self, access_token: &str, old_password: &str, new_password: String) -> Result<(), AuthError> {
         let mut user = self.get_authenticated_user(access_token, None).await?;
