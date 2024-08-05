@@ -1,5 +1,5 @@
 # some-auth
-This crate provides auth logic usually used in API services (user and role management and repository, JWT with refresh auth) out of the box.
+This crate provides auth logic usually used in API services (user and role management, repository, JWT with refresh auth) out of the box.
 For a more detailed description of the security methods used in this crate see [Security methods](#Security-methods).
 
 [crates.io](https://crates.io/crates/some-auth)
