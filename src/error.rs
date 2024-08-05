@@ -17,12 +17,16 @@ pub enum AuthError {
     InvalidCredentials,
     /// Error connected with `UserRepository`
     AuthRepositoryError(String),
-    /// User with not found. Inner string represents info about user
+    /// User not found. Inner string represents info about user
     UserNotFound(String),
     /// Current operation is invalid
     InvalidOperation(String),
     /// User is unathorized
-    Unathorized
+    Unathorized,
+    /// Role with provided name is already exists
+    RoleAlreadyExists,
+    /// Role not found. Inner string represents info about role
+    RoleNotFound(String)
 }
 
 impl fmt::Display for AuthError {
@@ -36,6 +40,8 @@ impl fmt::Display for AuthError {
             AuthError::UserNotFound(username_or_id) => write!(f, "Couldn't find user {username_or_id}"),
             AuthError::InvalidOperation(message) => write!(f, "Invalid auth operation: {message}"),
             AuthError::Unathorized => write!(f, "Unathorized"),
+            AuthError::RoleAlreadyExists => write!(f, "Role already exists"),
+            AuthError::RoleNotFound(username_or_id) => write!(f, "Couldn't find role {username_or_id}"),
         }
     }
 }

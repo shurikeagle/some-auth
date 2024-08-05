@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use axum::{extract::{Request, State}, http::{self, StatusCode}, middleware::Next, response::{IntoResponse, Response}, Json };
 use serde::Serialize;
 
-use crate::{AuthError, AuthUser, UserService};
+use crate::{user_service::RoleFilter, AuthError, AuthUser, UserService};
 
 #[derive(Serialize)]
 pub(super) struct AuthErrorResponse {
@@ -20,7 +20,9 @@ impl IntoResponse for AuthError {
             AuthError::InvalidCredentials => (StatusCode::FORBIDDEN, self.to_string()),
             AuthError::AuthRepositoryError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AuthError::UserNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
-            AuthError::Unathorized => (StatusCode::UNAUTHORIZED, self.to_string())
+            AuthError::Unathorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            AuthError::RoleAlreadyExists => (StatusCode::BAD_REQUEST, self.to_string()),
+            AuthError::RoleNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
         };
 
         let response = Json(AuthErrorResponse {
@@ -36,18 +38,18 @@ pub struct  UserServiceState<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     pub user_service: Arc<UserService<TAuthUser>>
 }
 
-/// Controls if user is authenticated and optionally checks if user is admin
-pub async fn auth_middleware<TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
+/// Controls if user is authenticated and checks their role according to [`RoleFilter`]
+pub async fn auth_middleware<'a, TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
     State(state): State<Arc<UserServiceState<TAuthUser>>>,
     req: Request,
     next: Next,
-    admin_only: bool
+    role_filter: Option<RoleFilter<'a>>
 ) -> Result<Response, AuthError> {
     let auth_header = req.headers().get(http::header::AUTHORIZATION).ok_or(AuthError::Unathorized)?;
     let access_token = auth_header.to_str().map_err(|_| AuthError::Internal("Couldn't handle user token".to_string()))?;
 
     let _ = state.user_service
-        .get_authenticated_user(access_token, admin_only)
+        .get_authenticated_user(access_token, role_filter)
         .await
         .map_err(|err| err)?;
 
