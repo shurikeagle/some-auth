@@ -153,6 +153,53 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         Ok(token_pair)
     }
 
+    /// Creates new role
+    pub async fn create_role(&self, role_name: String) -> Result<i32, AuthError> {
+        if let Some(_) = self.repository.get_role_by_name(&role_name).await.map_err(|err| AuthError::AuthRepositoryError(err))? {
+            return Err(AuthError::RoleAlreadyExists)
+        }
+
+        let role = Role::new(role_name);
+
+        self.repository.add_role(&role).await.map_err(|err| AuthError::AuthRepositoryError(err))
+    }
+
+    /// Updates role name
+    pub async fn update_role_name(&self, role_id: i32, new_name: String) -> Result<(), AuthError> {
+        if let Some(_) = self.repository.get_role_by_name(&new_name).await.map_err(|err| AuthError::AuthRepositoryError(err))? {
+            return Err(AuthError::RoleAlreadyExists)
+        }
+
+        let mut updating_role = self.repository.get_role(role_id).await
+            .map_err(|err| AuthError::AuthRepositoryError(err))?
+            .ok_or(AuthError::RoleNotFound(role_id.to_string()))?;
+
+        updating_role.set_name(new_name);
+
+        self.repository.update_role(&updating_role).await.map_err(|err| AuthError::AuthRepositoryError(err))?;
+
+        Ok(())
+    }
+
+    /// Gets all existing roles
+    pub async fn get_roles(&self) -> Result<Vec<Role>, AuthError> {
+        self.repository.get_roles().await.map_err(|err| AuthError::AuthRepositoryError(err))
+    }
+
+    /// Updates user's roles with new set of roles and clears all existing user's roles if they are not present in `roles` param.
+    pub async fn update_user_roles(&self, user_id: i32, roles: &Vec<i32>) -> Result<(), AuthError> {
+        let user = self.repository.get_user(user_id)
+            .await
+            .map_err(|err| AuthError::AuthRepositoryError(err))?
+            .ok_or(AuthError::UserNotFound(format!("{user_id}")))?;
+
+        if user.blocked() {
+            return Err(AuthError::InvalidOperation("user is blocked".to_string()));
+        }
+
+        Ok(self.repository.update_user_roles(user_id, roles).await.map_err(|err| AuthError::AuthRepositoryError(err))?)
+    }
+
     pub(crate) async fn get_authenticated_user<'a>(&self, access_token: &str, role_filter: Option<RoleFilter<'a>>) -> Result<TAuthUser, AuthError> {
         let decoded_token = jwt::decode_token(
             access_token,
@@ -419,6 +466,12 @@ impl Role {
     pub fn name(&self) -> &str { &self.name }
     pub fn created_at(&self) -> DateTime<Utc> { self.created_at }
     pub fn updated_at(&self) -> DateTime<Utc> { self.updated_at }
+
+    // setters
+    pub fn set_name(&mut self, value: String) {
+        self.name = value;
+        self.updated_at = Utc::now();
+    }
 }
 
 /// Default implementation of [`AuthUser`]

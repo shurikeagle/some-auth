@@ -20,7 +20,9 @@ impl IntoResponse for AuthError {
             AuthError::InvalidCredentials => (StatusCode::FORBIDDEN, self.to_string()),
             AuthError::AuthRepositoryError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AuthError::UserNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
-            AuthError::Unathorized => (StatusCode::UNAUTHORIZED, self.to_string())
+            AuthError::Unathorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            AuthError::RoleAlreadyExists => (StatusCode::BAD_REQUEST, self.to_string()),
+            AuthError::RoleNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
         };
 
         let response = Json(AuthErrorResponse {
