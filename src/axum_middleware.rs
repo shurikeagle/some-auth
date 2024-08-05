@@ -38,7 +38,7 @@ pub struct  UserServiceState<TAuthUser: AuthUser + fmt::Debug + Send + Sync> {
     pub user_service: Arc<UserService<TAuthUser>>
 }
 
-/// Controls if user is authenticated and checks their role aacording to [`RoleFilter`]
+/// Controls if user is authenticated and checks their role according to [`RoleFilter`]
 pub async fn auth_middleware<'a, TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
     State(state): State<Arc<UserServiceState<TAuthUser>>>,
     req: Request,

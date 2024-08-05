@@ -1,15 +1,12 @@
 # some-auth
-
-## Main info
-This crate provides auth logic usually used in API services (user management and repository, JWT with refresh auth) out of the box.
+This crate provides auth logic usually used in API services (user and role management and repository, JWT with refresh auth) out of the box.
 For a more detailed description of the security methods used in this crate see [Security methods](#Security-methods).
 
 [crates.io](https://crates.io/crates/some-auth)
 
 Now, the crate is generally focused on async usage, in particular [Axum](https://github.com/tokio-rs/axum).
 
-This crate optionally (with `axum-auth` feature enabled) advices auth middleware. Now there are only two roles available in this middleware: admin and others.
-More flexible role logic (with custom roles) will be implemented in the future.
+This crate optionally (with `axum-auth` feature enabled) advices auth middleware where it's possible to allow access both for every authenticated user or only for the specified roles.
 
 Now, postgres repository implementation is available (with `pg-repository` feature enabled) to store users and refresh tokens.
 Some features with other implementations (mongo for example) may be added into the crate during the time.
@@ -77,18 +74,20 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
 }
 ```
 
-Thus, to use implemented repository correctly in a relational database (as postgres in the example), one need to create two tables there:
+Thus, to use implemented repository correctly in a relational database (as postgres in the example), one need to create some tables there:
 1. A table for users where columns are representing [AuthUser](https://docs.rs/some-auth/latest/some_auth/trait.AuthUser.html) getters;
-2. A table for refresh tokens where resfresh token strings are stored.
+2. A table for roles where columns are representing [Role](https://docs.rs/some-auth/latest/some_auth/struct.Role.html) getters;
+3. Many-to-many table for users' roles;
+4. A table for refresh tokens where resfresh token strings are stored.
 
 You may also use Axum auth middleware to protect your API (available only with `features = [ "axum-auth" ]` feature):
 ```rust
-/// Controls if user is authenticated and optionally checks if user is admin
-pub async fn auth_middleware<TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
+/// Controls if user is authenticated and checks their role according to [`RoleFilter`]
+pub async fn auth_middleware<'a, TAuthUser: AuthUser + fmt::Debug + Send + Sync>(
     State(state): State<Arc<UserServiceState<TAuthUser>>>,
     req: Request,
     next: Next,
-    admin_only: bool
+    role_filter: Option<RoleFilter<'a>>
 ) -> Result<Response, AuthError> { ... }
 ```
 
@@ -98,9 +97,9 @@ let user_service_state = Arc::new(UserServiceState { user_service });
 let router = Router::new()
     .route("/public-route", post(public_route_handler))
     .route("/authenticated-users-route", post(authenticated_users_route_handler))
-        .route_layer(middleware::from_fn_with_state(user_service_state, |state, req, next| some_auth::auth_middleware(state, req, next, false))) // false as this route is available for every authenticated user
-    .route("/admin-only-route", post(admin_only_route_handler))
-        .route_layer(middleware::from_fn_with_state(user_service_state, |state, req, next| some_auth::auth_middleware(state, req, next, true))) // true as this route is available only for authenticated admins
+        .route_layer(middleware::from_fn_with_state(user_service_state, |state, req, next| some_auth::auth_middleware(state, req, next, None))) // None as this route is available for every authenticated user
+    .route("/role-specified-route", post(role_specified_route_handler))
+        .route_layer(middleware::from_fn_with_state(user_service_state, |state, req, next| some_auth::auth_middleware(state, req, next, Some(vec!["admin", "backoffice"])))) // this route is available only for authenticated users with "admin" or "backoffice" role
 ```
 
 ### manual setup
