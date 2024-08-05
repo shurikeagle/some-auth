@@ -200,6 +200,16 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> UserService<TAuthUser> {
         Ok(self.repository.update_user_roles(user_id, roles).await.map_err(|err| AuthError::AuthRepositoryError(err))?)
     }
 
+    /// Gets all user's roles
+    pub async fn get_user_roles(&self, user_id: i32) -> Result<Vec<Role>, AuthError> {
+        let _ = self.repository.get_user(user_id)
+            .await
+            .map_err(|err| AuthError::AuthRepositoryError(err))?
+            .ok_or(AuthError::UserNotFound(format!("{user_id}")))?;
+
+        self.repository.get_user_roles(user_id).await.map_err(|err| AuthError::AuthRepositoryError(err))
+    }
+
     pub(crate) async fn get_authenticated_user<'a>(&self, access_token: &str, role_filter: Option<RoleFilter<'a>>) -> Result<TAuthUser, AuthError> {
         let decoded_token = jwt::decode_token(
             access_token,

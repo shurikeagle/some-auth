@@ -245,7 +245,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
             FROM users_roles ur
             INNER JOIN roles r
             ON ur.role_id = r.id
-            WHERE ur.user_id = $1", &[&user_id])
+            WHERE ur.user_id = $1;", &[&user_id])
             .await
             .map_err(|err| err.to_string())?
             .iter()
