@@ -40,7 +40,7 @@ impl fmt::Display for AuthError {
             AuthError::UserNotFound(username_or_id) => write!(f, "Couldn't find user {username_or_id}"),
             AuthError::InvalidOperation(message) => write!(f, "Invalid auth operation: {message}"),
             AuthError::Unathorized => write!(f, "Unathorized"),
-            AuthError::RoleAlreadyExists => write!(f, "Such role is already exists"),
+            AuthError::RoleAlreadyExists => write!(f, "Role already exists"),
             AuthError::RoleNotFound(username_or_id) => write!(f, "Couldn't find role {username_or_id}"),
         }
     }
