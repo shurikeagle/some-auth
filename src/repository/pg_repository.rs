@@ -25,7 +25,7 @@ static SELECT_ALL_FROM_ROLES: &str = "\
         name,
         created_at,
         updated_at
-    FROM roles;
+    FROM roles
 ";
 
 /// Postgres implemetation of [`AuthRepository`]
