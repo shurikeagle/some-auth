@@ -54,7 +54,7 @@ impl<TAuthUser: AuthUser + fmt::Debug + Send + Sync> AuthRepository<TAuthUser> f
 
         let created_res = client.query_one("\
             INSERT INTO users (username, pwd_hash, blocked, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id;",
             &[
                 &user.username(),
