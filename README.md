@@ -14,7 +14,7 @@ Some features with other implementations (mongo for example) may be added into t
 The crate is under early development right now, some breaking changes may be implemented in the upcoming versions.
 
 ## Setup
-Add some-auth crate into your project (with `axum-auth` and `pg-repository` optional features which will be described below):
+Add some-auth crate into your project (with `axum-auth` and `pg-repository` optional features which are described below):
 ```bash
 cargo add some-auth --features axum-auth,pg-repository
 ```
