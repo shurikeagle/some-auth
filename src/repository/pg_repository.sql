@@ -2,7 +2,6 @@ CREATE TABLE IF NOT EXISTS users (
     id serial PRIMARY KEY,
     username VARCHAR NOT NULL UNIQUE,
     pwd_hash VARCHAR NOT NULL UNIQUE,
-    admin bool NOT NULL,
     blocked bool NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL

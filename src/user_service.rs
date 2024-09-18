@@ -420,7 +420,6 @@ impl CredentialValidator {
 /// User in auth context
 pub trait AuthUser {
     /// Creates new user
-    /// (implement validation in  validation requires in implementation)
     fn new(username: String, pwd_hash: String) -> Self;
 
     /// for mapping purposes
