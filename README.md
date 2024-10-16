@@ -1,5 +1,4 @@
 # some-auth
-========
 
 [![Rust](https://github.com/shurikeagle/some-auth/workflows/Rust/badge.svg)](https://github.com/shurikeagle/some-auth/actions)
 [![Latest version](https://img.shields.io/crates/v/some-auth.svg)](https://crates.io/crates/some-auth)
