@@ -9,8 +9,6 @@
 This crate provides auth logic usually used in API services (user and role management, repository, JWT with refresh auth) out of the box.
 For a more detailed description of the security methods used in this crate see [Security methods](#Security-methods).
 
-[crates.io](https://crates.io/crates/some-auth)
-
 Now, the crate is generally focused on async usage, in particular [Axum](https://github.com/tokio-rs/axum).
 
 This crate optionally (with `axum-auth` feature enabled) advices auth middleware where it's possible to allow access both for every authenticated user or only for the specified roles.
