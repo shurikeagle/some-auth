@@ -1,4 +1,11 @@
 # some-auth
+========
+
+[![Rust](https://github.com/shurikeagle/some-auth/workflows/Rust/badge.svg)](https://github.com/shurikeagle/some-auth/actions)
+[![Latest version](https://img.shields.io/crates/v/some-auth.svg)](https://crates.io/crates/some-auth)
+[![Documentation](https://docs.rs/some-auth/badge.svg)](https://docs.rs/some-auth)
+![License](https://img.shields.io/crates/l/some-auth.svg)
+
 This crate provides auth logic usually used in API services (user and role management, repository, JWT with refresh auth) out of the box.
 For a more detailed description of the security methods used in this crate see [Security methods](#Security-methods).
 
